@@ -38,7 +38,7 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
     }
 
     const elapsed = time.lap();
-    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i % reportEach)) / std.time.ns_per_s, reportEach });
+    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
     var it = dic.iterator();
