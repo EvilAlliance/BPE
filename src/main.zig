@@ -13,12 +13,38 @@ fn juicyMain(alloc: Allocator) !void {
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
     defer file.close();
 
-    var buffer: [std.math.pow(usize, 2, 20)]u8 = undefined;
+    var buffer: [std.math.pow(usize, 2, 10)]u8 = undefined;
 
     var readerLiteral = file.reader(&buffer);
     const reader = &readerLiteral.interface;
 
     try bypePairEncoding(alloc, reader);
+}
+
+fn Pair(comptime individualPair: type, comptime inside: bool) type {
+    return struct {
+        const Self = @This();
+
+        const Value = struct {
+            quantity: usize = 1,
+        };
+
+        r: individualPair,
+        l: individualPair,
+
+        val: if (inside) Value else void = if (inside) .{},
+
+        fn init(l: individualPair, r: individualPair) Self {
+            return .{ .l = l, .r = r };
+        }
+
+        fn compare(self: Self, b: Self) std.math.Order {
+            if (self.l > b.l and self.r > b.r) return .gt;
+            if (self.l < b.l and self.r < b.r) return .lt;
+
+            return .eq;
+        }
+    };
 }
 
 fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
@@ -41,14 +67,10 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
     std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
-    var it = dic.iterator();
-    while (it.next()) |entry| {
-        std.log.info("({}, {}) => {}", .{ entry.key_ptr.@"0", entry.key_ptr.@"1", entry.value_ptr.* });
-    }
     std.log.warn("This pairs don't exist in the table", .{});
     for (0..255) |l|
         for (0..255) |r|
-            if (dic.get(.{ @as(u8, @intCast(l)), @as(u8, @intCast(r)) }) == null) std.log.warn("    ({}, {})", .{ l, r });
+            if (dic.get(ActualPair.init(@intCast(l), @intCast(r))) == null) std.log.warn("    ({}, {})", .{ l, r });
 }
 
 const std = @import("std");
