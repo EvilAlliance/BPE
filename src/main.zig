@@ -101,7 +101,10 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
     std.log.warn("This pairs don't exist in the table", .{});
     for (0..255) |l|
         for (0..255) |r|
-            if (dic.get(&P.init(@intCast(l), @intCast(r)).node) == null) std.log.warn("    ({}, {})", .{ l, r });
+            if (dic.get(&P.init(@intCast(l), @intCast(r)).node)) |x| {
+                const pair: *P = @fieldParentPtr("node", x);
+                std.log.warn("    ({}, {}) => {}", .{ l, r, pair.val.quantity });
+            };
 }
 
 const AVL = @import("AVL.zig");
