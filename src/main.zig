@@ -98,12 +98,19 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
     std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
-    std.log.warn("This pairs don't exist in the table", .{});
+    std.log.info("Resulting Dic", .{});
     for (0..255) |l|
         for (0..255) |r|
             if (dic.get(&P.init(@intCast(l), @intCast(r)).node)) |x| {
                 const pair: *P = @fieldParentPtr("node", x);
-                std.log.warn("    ({}, {}) => {}", .{ l, r, pair.val.quantity });
+                std.log.info("    ({}, {}) => {}", .{ l, r, pair.val.quantity });
+            };
+
+    std.log.info("Missing pair", .{});
+    for (0..255) |l|
+        for (0..255) |r|
+            if (dic.get(&P.init(@intCast(l), @intCast(r)).node) == null) {
+                std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
