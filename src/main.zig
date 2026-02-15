@@ -25,72 +25,46 @@ fn juicyMain(alloc: Allocator) !void {
     try bypePairEncoding(alloc, reader);
 }
 
-fn Pair(comptime individualPair: type) type {
-    return struct {
-        const Self = @This();
+const Pair = packed struct {
+    const Self = @This();
+    l: u16,
+    r: u16,
+    count: u32 = 1,
 
-        const Value = struct {
-            quantity: usize = 1,
-        };
-        node: AVL.Node = .{},
+    pub fn init(l: u16, r: u16) Self {
+        return .{ .l = l, .r = r };
+    }
 
-        r: individualPair,
-        l: individualPair,
+    pub fn compare(self: Self, b: Self) Order {
+        if (self.l < b.l) return .lt;
+        if (self.l > b.l) return .gt;
+        if (self.r < b.r) return .lt;
+        if (self.r > b.r) return .gt;
 
-        val: Value = .{},
-
-        fn init(l: individualPair, r: individualPair) Self {
-            return .{ .l = l, .r = r, .node = .{}, .val = .{} };
-        }
-
-        fn compare(self: *const Self, b: *const Self) std.math.Order {
-            if (self.l < b.l) return .lt;
-            if (self.l > b.l) return .gt;
-            if (self.r < b.r) return .lt;
-            if (self.r > b.r) return .gt;
-
-            return .eq;
-        }
-
-        fn compareNode(selfNode: *const AVL.Node, bNode: *const AVL.Node) std.math.Order {
-            const self: *const Self = @fieldParentPtr("node", selfNode);
-            const b: *const Self = @fieldParentPtr("node", bNode);
-
-            return self.compare(b);
-        }
-
-        pub fn get(a: Allocator, node: *const AVL.Node) []const u8 {
-            const self: *const Self = @fieldParentPtr("node", node);
-            return std.fmt.allocPrint(a, "({}, {}) v:{}", .{ self.l, self.r, self.val.quantity }) catch unreachable;
-        }
-    };
-}
+        return .eq;
+    }
+};
 
 fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
-    const P = Pair(u16);
-    var dic = AVL.AVL(&P.compareNode){};
+    var dic: SortedArrayList(Pair, Pair.compare) = .{};
+    try dic.ensureTotalCapacity(alloc, std.math.pow(usize, std.math.maxInt(u8), 2));
 
     var i: usize = 0;
     const reportEach = std.math.pow(usize, 10, 7);
 
-    var toInsert = try alloc.create(P);
-    toInsert.* = .{ .l = undefined, .r = undefined };
-
     var time = try Timer.start();
     while (reader.takeByte() catch null) |l| : (i += 1) {
         const r = reader.peekByte() catch break;
-        toInsert.l = l;
-        toInsert.r = r;
+        const toInsert = Pair{ .l = l, .r = r };
 
-        if (dic.putOrGet(&toInsert.node)) |x| {
-            @as(*P, @fieldParentPtr("node", x)).val.quantity += 1;
+        if (try dic.putOrGet(alloc, toInsert)) |x| {
+            x.count += 1;
         } else {
-            toInsert = try alloc.create(P);
-            toInsert.* = .{ .l = undefined, .r = undefined };
+            std.log.debug("{}", .{dic.list.items.len});
         }
 
         if (i % reportEach == 0) {
-            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count });
+            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.list.items.len });
         }
     }
 
@@ -101,24 +75,24 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
     std.log.info("Resulting Dic", .{});
     for (0..255) |l|
         for (0..255) |r|
-            if (dic.get(&P.init(@intCast(l), @intCast(r)).node)) |x| {
-                const pair: *P = @fieldParentPtr("node", x);
-                std.log.info("    ({}, {}) => {}", .{ l, r, pair.val.quantity });
+            if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
+                std.log.info("    ({}, {}) => {}", .{ l, r, x.count });
             };
 
     std.log.info("Missing pair", .{});
     for (0..255) |l|
         for (0..255) |r|
-            if (dic.get(&P.init(@intCast(l), @intCast(r)).node) == null) {
+            if (dic.get(Pair.init(@intCast(l), @intCast(r))) == null) {
                 std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
-const AVL = @import("AVL.zig");
+const SortedArrayList = @import("SortedArrayList.zig").SortedArrayList;
 
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const Order = std.math.Order;
 const File = std.fs.File;
 const Timer = std.time.Timer;
 const io = std.io;
