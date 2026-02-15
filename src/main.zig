@@ -11,7 +11,7 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "try.mp4");
+    const pathAbs = try std.fs.realpathAlloc(alloc, "enwik9.bin");
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
