@@ -1,106 +1,106 @@
-info: 0 Seconds for 0 pairs
-info: 20 Seconds for 10000000 pairs
-info: 38 Seconds for 20000000 pairs
-info: 55 Seconds for 30000000 pairs
-info: 72 Seconds for 40000000 pairs
-info: 90 Seconds for 50000000 pairs
-info: 107 Seconds for 60000000 pairs
-info: 125 Seconds for 70000000 pairs
-info: 142 Seconds for 80000000 pairs
-info: 159 Seconds for 90000000 pairs
-info: 177 Seconds for 100000000 pairs
-info: 194 Seconds for 110000000 pairs
-info: 212 Seconds for 120000000 pairs
-info: 229 Seconds for 130000000 pairs
-info: 246 Seconds for 140000000 pairs
-info: 264 Seconds for 150000000 pairs
-info: 281 Seconds for 160000000 pairs
-info: 299 Seconds for 170000000 pairs
-info: 316 Seconds for 180000000 pairs
-info: 333 Seconds for 190000000 pairs
-info: 350 Seconds for 200000000 pairs
-info: 368 Seconds for 210000000 pairs
-info: 385 Seconds for 220000000 pairs
-info: 402 Seconds for 230000000 pairs
-info: 419 Seconds for 240000000 pairs
-info: 437 Seconds for 250000000 pairs
-info: 454 Seconds for 260000000 pairs
-info: 471 Seconds for 270000000 pairs
-info: 488 Seconds for 280000000 pairs
-info: 505 Seconds for 290000000 pairs
-info: 523 Seconds for 300000000 pairs
-info: 540 Seconds for 310000000 pairs
-info: 557 Seconds for 320000000 pairs
-info: 575 Seconds for 330000000 pairs
-info: 592 Seconds for 340000000 pairs
-info: 610 Seconds for 350000000 pairs
-info: 627 Seconds for 360000000 pairs
-info: 645 Seconds for 370000000 pairs
-info: 662 Seconds for 380000000 pairs
-info: 680 Seconds for 390000000 pairs
-info: 697 Seconds for 400000000 pairs
-info: 715 Seconds for 410000000 pairs
-info: 732 Seconds for 420000000 pairs
-info: 750 Seconds for 430000000 pairs
-info: 767 Seconds for 440000000 pairs
-info: 784 Seconds for 450000000 pairs
-info: 802 Seconds for 460000000 pairs
-info: 819 Seconds for 470000000 pairs
-info: 836 Seconds for 480000000 pairs
-info: 854 Seconds for 490000000 pairs
-info: 871 Seconds for 500000000 pairs
-info: 889 Seconds for 510000000 pairs
-info: 906 Seconds for 520000000 pairs
-info: 923 Seconds for 530000000 pairs
-info: 941 Seconds for 540000000 pairs
-info: 958 Seconds for 550000000 pairs
-info: 976 Seconds for 560000000 pairs
-info: 993 Seconds for 570000000 pairs
-info: 1010 Seconds for 580000000 pairs
-info: 1028 Seconds for 590000000 pairs
-info: 1045 Seconds for 600000000 pairs
-info: 1063 Seconds for 610000000 pairs
-info: 1081 Seconds for 620000000 pairs
-info: 1098 Seconds for 630000000 pairs
-info: 1116 Seconds for 640000000 pairs
-info: 1133 Seconds for 650000000 pairs
-info: 1151 Seconds for 660000000 pairs
-info: 1168 Seconds for 670000000 pairs
-info: 1185 Seconds for 680000000 pairs
-info: 1203 Seconds for 690000000 pairs
-info: 1220 Seconds for 700000000 pairs
-info: 1238 Seconds for 710000000 pairs
-info: 1255 Seconds for 720000000 pairs
-info: 1272 Seconds for 730000000 pairs
-info: 1290 Seconds for 740000000 pairs
-info: 1307 Seconds for 750000000 pairs
-info: 1324 Seconds for 760000000 pairs
-info: 1342 Seconds for 770000000 pairs
-info: 1359 Seconds for 780000000 pairs
-info: 1376 Seconds for 790000000 pairs
-info: 1393 Seconds for 800000000 pairs
-info: 1411 Seconds for 810000000 pairs
-info: 1428 Seconds for 820000000 pairs
-info: 1446 Seconds for 830000000 pairs
-info: 1463 Seconds for 840000000 pairs
-info: 1481 Seconds for 850000000 pairs
-info: 1498 Seconds for 860000000 pairs
-info: 1516 Seconds for 870000000 pairs
-info: 1533 Seconds for 880000000 pairs
-info: 1550 Seconds for 890000000 pairs
-info: 1567 Seconds for 900000000 pairs
-info: 1585 Seconds for 910000000 pairs
-info: 1602 Seconds for 920000000 pairs
-info: 1619 Seconds for 930000000 pairs
-info: 1637 Seconds for 940000000 pairs
-info: 1654 Seconds for 950000000 pairs
-info: 1672 Seconds for 960000000 pairs
-info: 1689 Seconds for 970000000 pairs
-info: 1707 Seconds for 980000000 pairs
-info: 1724 Seconds for 990000000 pairs
-info: 1741 Seconds for 1000000000 pairs
-info: 17 Seconds AVG in each 10000000
-info: 1743 Seconds
+info: 0 Seconds for 0 pairs, count: 1
+info: 9 Seconds for 10000000 pairs, count: 65536
+info: 19 Seconds for 20000000 pairs, count: 65536
+info: 29 Seconds for 30000000 pairs, count: 65536
+info: 39 Seconds for 40000000 pairs, count: 65536
+info: 48 Seconds for 50000000 pairs, count: 65536
+info: 58 Seconds for 60000000 pairs, count: 65536
+info: 68 Seconds for 70000000 pairs, count: 65536
+info: 78 Seconds for 80000000 pairs, count: 65536
+info: 87 Seconds for 90000000 pairs, count: 65536
+info: 98 Seconds for 100000000 pairs, count: 65536
+info: 107 Seconds for 110000000 pairs, count: 65536
+info: 117 Seconds for 120000000 pairs, count: 65536
+info: 127 Seconds for 130000000 pairs, count: 65536
+info: 137 Seconds for 140000000 pairs, count: 65536
+info: 148 Seconds for 150000000 pairs, count: 65536
+info: 157 Seconds for 160000000 pairs, count: 65536
+info: 167 Seconds for 170000000 pairs, count: 65536
+info: 177 Seconds for 180000000 pairs, count: 65536
+info: 187 Seconds for 190000000 pairs, count: 65536
+info: 197 Seconds for 200000000 pairs, count: 65536
+info: 207 Seconds for 210000000 pairs, count: 65536
+info: 217 Seconds for 220000000 pairs, count: 65536
+info: 227 Seconds for 230000000 pairs, count: 65536
+info: 236 Seconds for 240000000 pairs, count: 65536
+info: 246 Seconds for 250000000 pairs, count: 65536
+info: 256 Seconds for 260000000 pairs, count: 65536
+info: 266 Seconds for 270000000 pairs, count: 65536
+info: 276 Seconds for 280000000 pairs, count: 65536
+info: 286 Seconds for 290000000 pairs, count: 65536
+info: 296 Seconds for 300000000 pairs, count: 65536
+info: 306 Seconds for 310000000 pairs, count: 65536
+info: 316 Seconds for 320000000 pairs, count: 65536
+info: 326 Seconds for 330000000 pairs, count: 65536
+info: 336 Seconds for 340000000 pairs, count: 65536
+info: 345 Seconds for 350000000 pairs, count: 65536
+info: 355 Seconds for 360000000 pairs, count: 65536
+info: 365 Seconds for 370000000 pairs, count: 65536
+info: 375 Seconds for 380000000 pairs, count: 65536
+info: 384 Seconds for 390000000 pairs, count: 65536
+info: 394 Seconds for 400000000 pairs, count: 65536
+info: 404 Seconds for 410000000 pairs, count: 65536
+info: 413 Seconds for 420000000 pairs, count: 65536
+info: 423 Seconds for 430000000 pairs, count: 65536
+info: 432 Seconds for 440000000 pairs, count: 65536
+info: 442 Seconds for 450000000 pairs, count: 65536
+info: 452 Seconds for 460000000 pairs, count: 65536
+info: 461 Seconds for 470000000 pairs, count: 65536
+info: 471 Seconds for 480000000 pairs, count: 65536
+info: 481 Seconds for 490000000 pairs, count: 65536
+info: 491 Seconds for 500000000 pairs, count: 65536
+info: 501 Seconds for 510000000 pairs, count: 65536
+info: 510 Seconds for 520000000 pairs, count: 65536
+info: 520 Seconds for 530000000 pairs, count: 65536
+info: 530 Seconds for 540000000 pairs, count: 65536
+info: 540 Seconds for 550000000 pairs, count: 65536
+info: 549 Seconds for 560000000 pairs, count: 65536
+info: 559 Seconds for 570000000 pairs, count: 65536
+info: 569 Seconds for 580000000 pairs, count: 65536
+info: 579 Seconds for 590000000 pairs, count: 65536
+info: 589 Seconds for 600000000 pairs, count: 65536
+info: 599 Seconds for 610000000 pairs, count: 65536
+info: 609 Seconds for 620000000 pairs, count: 65536
+info: 619 Seconds for 630000000 pairs, count: 65536
+info: 629 Seconds for 640000000 pairs, count: 65536
+info: 638 Seconds for 650000000 pairs, count: 65536
+info: 648 Seconds for 660000000 pairs, count: 65536
+info: 657 Seconds for 670000000 pairs, count: 65536
+info: 667 Seconds for 680000000 pairs, count: 65536
+info: 676 Seconds for 690000000 pairs, count: 65536
+info: 686 Seconds for 700000000 pairs, count: 65536
+info: 696 Seconds for 710000000 pairs, count: 65536
+info: 705 Seconds for 720000000 pairs, count: 65536
+info: 715 Seconds for 730000000 pairs, count: 65536
+info: 724 Seconds for 740000000 pairs, count: 65536
+info: 734 Seconds for 750000000 pairs, count: 65536
+info: 743 Seconds for 760000000 pairs, count: 65536
+info: 753 Seconds for 770000000 pairs, count: 65536
+info: 763 Seconds for 780000000 pairs, count: 65536
+info: 772 Seconds for 790000000 pairs, count: 65536
+info: 782 Seconds for 800000000 pairs, count: 65536
+info: 791 Seconds for 810000000 pairs, count: 65536
+info: 801 Seconds for 820000000 pairs, count: 65536
+info: 810 Seconds for 830000000 pairs, count: 65536
+info: 820 Seconds for 840000000 pairs, count: 65536
+info: 829 Seconds for 850000000 pairs, count: 65536
+info: 839 Seconds for 860000000 pairs, count: 65536
+info: 849 Seconds for 870000000 pairs, count: 65536
+info: 858 Seconds for 880000000 pairs, count: 65536
+info: 868 Seconds for 890000000 pairs, count: 65536
+info: 877 Seconds for 900000000 pairs, count: 65536
+info: 887 Seconds for 910000000 pairs, count: 65536
+info: 896 Seconds for 920000000 pairs, count: 65536
+info: 906 Seconds for 930000000 pairs, count: 65536
+info: 916 Seconds for 940000000 pairs, count: 65536
+info: 925 Seconds for 950000000 pairs, count: 65536
+info: 935 Seconds for 960000000 pairs, count: 65536
+info: 944 Seconds for 970000000 pairs, count: 65536
+info: 954 Seconds for 980000000 pairs, count: 65536
+info: 964 Seconds for 990000000 pairs, count: 65536
+info: 973 Seconds for 1000000000 pairs, count: 65536
+info: 9 Seconds AVG in each 10000000
+info: 974 Seconds
 warning: This pairs don't exist in the table
 warning:     (0, 0) => 1023851
 warning:     (0, 1) => 209415
