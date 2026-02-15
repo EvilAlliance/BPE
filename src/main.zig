@@ -59,8 +59,6 @@ fn bypePairEncoding(alloc: Allocator, reader: *io.Reader) !void {
 
         if (try dic.putOrGet(alloc, toInsert)) |x| {
             x.count += 1;
-        } else {
-            std.log.debug("{}", .{dic.list.items.len});
         }
 
         if (i % reportEach == 0) {
