@@ -172,9 +172,9 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
         pub fn hash(_: @This(), p: Pair) usize {
             var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
             x ^= x >> 33;
-            x *= 0xff51afd7ed558ccd;
+            x *%= 0xff51afd7ed558ccd;
             x ^= x >> 33;
-            x *= 0xc4ceb9fe1a85ec53;
+            x *%= 0xc4ceb9fe1a85ec53;
             x ^= x >> 33;
             return x;
         }
