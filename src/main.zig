@@ -170,13 +170,13 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
 
     var dic: std.HashMapUnmanaged(Pair, u32, struct {
         pub fn hash(_: @This(), p: Pair) usize {
-            var x: u32 = (@as(u32, @intCast(p.l)) << 16) | @as(u32, @intCast(p.r));
-            x ^= x >> 16;
-            x *%= 0x85ebca6b;
-            x ^= x >> 13;
-            x *%= 0xc2b2ae35;
-            x ^= x >> 16;
-            return @intCast(x);
+            var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
+            x ^= x >> 33;
+            x *= 0xff51afd7ed558ccd;
+            x ^= x >> 33;
+            x *= 0xc4ceb9fe1a85ec53;
+            x ^= x >> 33;
+            return x;
         }
         pub fn eql(_: @This(), a: Pair, b: Pair) bool {
             return a.l == b.l and a.r == b.r;
