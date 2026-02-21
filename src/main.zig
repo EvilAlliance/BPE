@@ -22,7 +22,7 @@ fn juicyMain(alloc: Allocator) !void {
     var readerLiteral = file.reader(&buffer);
     const reader = &readerLiteral.interface;
 
-    try bypePairEncodingHashMap(alloc, reader);
+    try bypePairEncodingMyHashMap(alloc, reader);
 }
 
 fn bypePairEncodingSortedArray(alloc: Allocator, reader: *io.Reader) !void {
@@ -220,8 +220,72 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
             };
 }
 
+fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
+    const Pair = struct {
+        const Self = @This();
+        l: u16,
+        r: u16,
+
+        pub fn init(l: u16, r: u16) Self {
+            return .{ .l = l, .r = r };
+        }
+    };
+
+    var dic: MyHashMap(Pair, u32, struct {
+        pub fn hash(_: @This(), p: Pair) usize {
+            var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
+            x ^= x >> 33;
+            x *%= 0xff51afd7ed558ccd;
+            x ^= x >> 33;
+            x *%= 0xc4ceb9fe1a85ec53;
+            x ^= x >> 33;
+            return x;
+        }
+        pub fn eql(_: @This(), a: Pair, b: Pair) bool {
+            return a.l == b.l and a.r == b.r;
+        }
+    }, 50) = .{};
+
+    try dic.ensureTotalCapacity(alloc, std.math.pow(u32, std.math.maxInt(u8), 2));
+
+    var i: usize = 0;
+    const reportEach = std.math.pow(usize, 10, 7);
+
+    var time = try Timer.start();
+    while (reader.takeByte() catch null) |l| : (i += 1) {
+        const r = reader.peekByte() catch break;
+        const toInsert = Pair.init(l, r);
+
+        const entry = try dic.getOrPutValue(alloc, toInsert, 0);
+        entry.value.* += 1;
+
+        if (i % reportEach == 0) {
+            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count() });
+        }
+    }
+
+    const elapsed = time.lap();
+    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
+    std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
+
+    std.log.info("Resulting Dic", .{});
+    for (0..255) |l|
+        for (0..255) |r|
+            if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
+                std.log.info("    ({}, {}) => {}", .{ l, r, x });
+            };
+
+    std.log.info("Missing pair", .{});
+    for (0..255) |l|
+        for (0..255) |r|
+            if (dic.get(Pair.init(@intCast(l), @intCast(r))) == null) {
+                std.log.warn("    ({}, {})", .{ l, r });
+            };
+}
+
 const SortedArrayList = @import("SortedArrayList.zig").SortedArrayList;
 const AVL = @import("AVL.zig");
+const MyHashMap = @import("HashMap.zig").HashMap;
 
 const std = @import("std");
 
