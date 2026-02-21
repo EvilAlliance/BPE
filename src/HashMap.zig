@@ -1,5 +1,13 @@
 const Hash = usize;
 
+const builtin = @import("builtin");
+const hasSimd = switch (builtin.target.cpu.arch) {
+    .x86, .x86_64 => builtin.target.cpu.features.isEnabled(@intFromEnum(std.Target.x86.Feature.sse2)),
+    .aarch64 => true, // NEON mandatory
+    .arm => builtin.target.cpu.features.isEnabled(@intFromEnum(std.Target.arm.Feature.neon)),
+    else => false,
+};
+//
 // This was based in zig hash map I may be smart enough to do it alone, but I want to advace further
 // There will be another feature and may be change differently
 pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, comptime loadFactor: comptime_int) type {
@@ -10,7 +18,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
     return struct {
         const Self = @This();
         const Size = u32;
-        const GroupSize: u8 = 8;
+
+        const GroupSize: u8 = if (hasSimd) 8 else 1;
         const RobinHood = u8;
         const MinSize = 8;
         comptime {
@@ -478,3 +487,23 @@ const std = @import("std");
 
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+
+// pub fn main() !void {
+//     var dic: HashMap(u32, u32, struct {
+//         pub fn hash(_: @This(), p: u32) usize {
+//             var x: usize = @as(usize, @intCast(p)) | (@as(usize, @intCast(p)) << 16) | (@as(usize, @intCast(p)) << 32) | (@as(usize, @intCast(p)) << 48);
+//             x ^= x >> 33;
+//             x *%= 0xff51afd7ed558ccd;
+//             x ^= x >> 33;
+//             x *%= 0xc4ceb9fe1a85ec53;
+//             x ^= x >> 33;
+//             return x;
+//         }
+//         pub fn eql(_: @This(), a: u32, b: u32) bool {
+//             return a == b;
+//         }
+//     }, 50) = .{};
+//
+//     try dic.put(std.heap.page_allocator, 1, 10);
+//     std.log.debug("{?}", .{dic.get(1)});
+// }
