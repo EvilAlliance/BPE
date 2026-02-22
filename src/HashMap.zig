@@ -1,13 +1,5 @@
 const Hash = usize;
 
-const builtin = @import("builtin");
-const hasSimd = switch (builtin.target.cpu.arch) {
-    .x86, .x86_64 => builtin.target.cpu.features.isEnabled(@intFromEnum(std.Target.x86.Feature.sse2)),
-    .aarch64 => true, // NEON mandatory
-    .arm => builtin.target.cpu.features.isEnabled(@intFromEnum(std.Target.arm.Feature.neon)),
-    else => false,
-};
-//
 // This was based in zig hash map I may be smart enough to do it alone, but I want to advace further
 // There will be another feature and may be change differently
 pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, comptime loadFactor: comptime_int) type {
@@ -19,12 +11,13 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         const Self = @This();
         const Size = u32;
 
-        const GroupSize: u8 = if (hasSimd) 8 else 1;
+        const GroupSize: u8 = 8;
         const RobinHood = u8;
         const MinSize = 8;
         comptime {
             assert(@sizeOf(Metadata) == @sizeOf(RobinHood) and @sizeOf(RobinHood) == 1);
             assert(std.math.isPowerOfTwo(GroupSize));
+            assert(MinSize >= GroupSize);
         }
 
         const Header = struct {
@@ -232,6 +225,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 }
 
                 if (equalFree != 0) {
+                    if (firstRobinHood.robinHood != 0 or firstTombStone.robinHood != 0) break;
                     const offset = @ctz(equalFree);
                     const index = idx + offset;
 
@@ -335,6 +329,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 }
 
                 if (equalFree != 0) {
+                    if (firstRobinHood.robinHood != 0 or firstTombStone.robinHood != 0) break;
                     const offset = @ctz(equalFree);
                     const index = idx + offset;
 
@@ -420,6 +415,9 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
                     equalExpected ^= std.math.shl(u8, 1, offset);
                 }
+
+                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
+                if (equalFree != 0) break;
 
                 idx = (idx + GroupSize) & mask;
             }
