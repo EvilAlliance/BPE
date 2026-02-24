@@ -194,7 +194,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
             while (limit != 0) : (limit -= 1) {
                 const startMetadataGroup = self.metadata.? + idx;
-                const startRobinHoodGroup = (self.metadata.? + self.capacity()) + idx;
+                const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
 
                 const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
                 const robinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
@@ -240,7 +240,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                     return;
                 }
 
-                idx = (idx + GroupSize) & mask;
+                idx = (idx + 2 * GroupSize) & mask;
             }
 
             if (firstTombStone.robinHood != 0) {
@@ -284,7 +284,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             try self.growIfNeeded(alloc, 1, ctx);
 
             const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b111;
+            const mask = (self.capacity() - 1) ^ 0b1111;
             var limit = @ctz(self.capacity());
 
             // Divide by group
@@ -298,7 +298,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
             while (limit != 0) : (limit -= 1) {
                 const startMetadataGroup = self.metadata.? + idx;
-                const startRobinHoodGroup = (self.metadata.? + self.capacity()) + idx;
+                const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
 
                 const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
                 const robinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
@@ -344,7 +344,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                     return .{ .key = &self.keys()[index], .value = &self.values()[index] };
                 }
 
-                idx = (idx + GroupSize) & mask;
+                idx = (idx + 2 * GroupSize) & mask;
             }
 
             if (firstTombStone.robinHood != 0) {
@@ -390,7 +390,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             const ctx: Context = undefined;
 
             const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b111;
+            const mask = (self.capacity() - 1) ^ 0b1111;
             var limit = @ctz(self.capacity());
 
             var idx: usize = @truncate(hash & mask);
@@ -419,7 +419,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
                 if (equalFree != 0) break;
 
-                idx = (idx + GroupSize) & mask;
+                idx = (idx + 2 * GroupSize) & mask;
             }
             return null;
         }
