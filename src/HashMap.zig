@@ -184,8 +184,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             try self.growIfNeeded(alloc, 1, ctx);
 
             const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b111;
             var limit = @ctz(self.capacity());
+            const mask = (self.capacity() - 1) ^ 0b1111;
 
             var idx: usize = @truncate(hash & mask);
 
