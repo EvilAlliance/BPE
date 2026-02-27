@@ -31,6 +31,9 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             value: *V,
         };
 
+        // [Header][Metadata][Keys][Values]
+        //         ^ Here is metadata pointing at
+        // Metadata is divided by [8*Metadata][8*RobingHood]
         metadata: ?[*]Metadata = null,
 
         available: Size = 0,
