@@ -440,44 +440,6 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             return if (self.getIndex(key, ctx)) |i| self.values()[i] else null;
         }
 
-        // pub fn get(self: *Self, key: K) ?V {
-        //     const ctx: Context = undefined;
-        //
-        //     const hash: Hash = ctx.hash(key);
-        //     const mask = (self.capacity() - 1) ^ 0b1111;
-        //     var limit = @ctz(self.capacity());
-        //
-        //     var idx: usize = @truncate(hash & mask);
-        //
-        //     const fingerprint = Metadata.takeFingerprint(hash);
-        //     var expected: Metadata = .{};
-        //     expected.fill(fingerprint);
-        //
-        //     while (limit != 0) : (limit -= 1) {
-        //         const startMetadataGroup = self.metadata.? + idx;
-        //
-        //         const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
-        //         var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-        //
-        //         while (equalExpected != 0) {
-        //             const offset = @ctz(equalExpected);
-        //             const index = idx + offset;
-        //
-        //             if (ctx.eql(self.keys()[index], key)) {
-        //                 return self.values()[index];
-        //             }
-        //
-        //             equalExpected ^= std.math.shl(u8, 1, offset);
-        //         }
-        //
-        //         const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-        //         if (equalFree != 0) break;
-        //
-        //         idx = (idx + 2 * GroupSize) & mask;
-        //     }
-        //     return null;
-        // }
-        //
         pub fn count(self: *const Self) Size {
             return self.size;
         }
