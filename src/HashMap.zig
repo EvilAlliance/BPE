@@ -31,6 +31,12 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             value: *V,
         };
 
+        const Slot = struct {
+            key: *K,
+            value: *V,
+            existed: bool,
+        };
+
         // [Header][Metadata][Keys][Values]
         //         ^ Here is metadata pointing at
         // Metadata is divided by [8*Metadata][8*RobingHood]
@@ -118,15 +124,18 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
             if (self.size != 0) {
                 const oldCapacity = self.capacity();
-                for (
-                    self.metadata.?[0..oldCapacity],
-                    self.keys()[0..oldCapacity],
-                    self.values()[0..oldCapacity],
-                ) |m, k, v| {
-                    _ = ctx;
-                    if (!m.isUsed()) continue;
-                    try map.put(alloc, k, v);
-                    if (map.size == self.size) break;
+                var idx: usize = 0;
+                blk: while (idx < oldCapacity) : (idx += 2 * GroupSize) {
+                    for (
+                        self.metadata.?[idx .. idx + GroupSize],
+                        self.keys()[idx .. idx + GroupSize],
+                        self.values()[idx .. idx + GroupSize],
+                    ) |m, k, v| {
+                        _ = ctx;
+                        if (!m.isUsed()) continue;
+                        try map.put(alloc, k, v);
+                        if (map.size == self.size) break :blk;
+                    }
                 }
             }
 
@@ -179,13 +188,49 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             return @max(MinSize, newCap);
         }
 
+        pub fn getIndex(self: *Self, key: K, ctx: anytype) ?usize {
+            const hash: Hash = ctx.hash(key);
+            const mask = (self.capacity() - 1) & comptime ~((GroupSize << 1) - 1);
+            var limit = @ctz(self.capacity());
+
+            var idx: usize = @truncate(hash & mask);
+
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var expected: Metadata = .{};
+            expected.fill(fingerprint);
+
+            while (limit != 0) : (limit += 1) {
+                const startMetadataGroup = self.metadata.? + idx;
+                const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
+                var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
+
+                while (equalExpected != 0) {
+                    const offset = @ctz(equalExpected);
+                    const index = idx + offset;
+
+                    if (ctx.eql(self.keys()[index], key)) {
+                        return idx;
+                    }
+
+                    equalExpected ^= std.math.shl(u8, 1, offset);
+                }
+
+                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
+                if (equalFree != 0) break;
+
+                idx = (idx + GroupSize * 2) & mask;
+            }
+
+            return null;
+        }
+
         pub fn put(self: *Self, alloc: Allocator, key: K, value: V) (Allocator.Error || error{Overflow})!void {
             const ctx: Context = undefined;
             try self.growIfNeeded(alloc, 1, ctx);
 
             const hash: Hash = ctx.hash(key);
-            var limit = @ctz(self.capacity());
             const mask = (self.capacity() - 1) ^ 0b1111;
+            var limit = @ctz(self.capacity());
 
             var idx: usize = @truncate(hash & mask);
 
@@ -392,41 +437,47 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         pub fn get(self: *Self, key: K) ?V {
             const ctx: Context = undefined;
 
-            const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b1111;
-            var limit = @ctz(self.capacity());
-
-            var idx: usize = @truncate(hash & mask);
-
-            const fingerprint = Metadata.takeFingerprint(hash);
-            var expected: Metadata = .{};
-            expected.fill(fingerprint);
-
-            while (limit != 0) : (limit -= 1) {
-                const startMetadataGroup = self.metadata.? + idx;
-
-                const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
-                var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-
-                while (equalExpected != 0) {
-                    const offset = @ctz(equalExpected);
-                    const index = idx + offset;
-
-                    if (ctx.eql(self.keys()[index], key)) {
-                        return self.values()[index];
-                    }
-
-                    equalExpected ^= std.math.shl(u8, 1, offset);
-                }
-
-                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-                if (equalFree != 0) break;
-
-                idx = (idx + 2 * GroupSize) & mask;
-            }
-            return null;
+            return if (self.getIndex(key, ctx)) |i| self.values()[i] else null;
         }
 
+        // pub fn get(self: *Self, key: K) ?V {
+        //     const ctx: Context = undefined;
+        //
+        //     const hash: Hash = ctx.hash(key);
+        //     const mask = (self.capacity() - 1) ^ 0b1111;
+        //     var limit = @ctz(self.capacity());
+        //
+        //     var idx: usize = @truncate(hash & mask);
+        //
+        //     const fingerprint = Metadata.takeFingerprint(hash);
+        //     var expected: Metadata = .{};
+        //     expected.fill(fingerprint);
+        //
+        //     while (limit != 0) : (limit -= 1) {
+        //         const startMetadataGroup = self.metadata.? + idx;
+        //
+        //         const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
+        //         var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
+        //
+        //         while (equalExpected != 0) {
+        //             const offset = @ctz(equalExpected);
+        //             const index = idx + offset;
+        //
+        //             if (ctx.eql(self.keys()[index], key)) {
+        //                 return self.values()[index];
+        //             }
+        //
+        //             equalExpected ^= std.math.shl(u8, 1, offset);
+        //         }
+        //
+        //         const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
+        //         if (equalFree != 0) break;
+        //
+        //         idx = (idx + 2 * GroupSize) & mask;
+        //     }
+        //     return null;
+        // }
+        //
         pub fn count(self: *const Self) Size {
             return self.size;
         }
