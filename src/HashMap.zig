@@ -206,10 +206,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
                 while (equalExpected != 0) {
                     const offset = @ctz(equalExpected);
-                    const index = idx + offset;
+                    const index = (idx >> 1) + offset;
 
                     if (ctx.eql(self.keys()[index], key)) {
-                        return idx;
+                        return index;
                     }
 
                     equalExpected ^= std.math.shl(u8, 1, offset);
@@ -224,12 +224,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             return null;
         }
 
-        pub fn put(self: *Self, alloc: Allocator, key: K, value: V) (Allocator.Error || error{Overflow})!void {
-            const ctx: Context = undefined;
-            try self.growIfNeeded(alloc, 1, ctx);
-
+        pub fn getSlot(self: *Self, key: K, ctx: anytype) Slot {
+            const Info = struct {
+                slot: Slot,
+                robinHood: ?*u8 = null,
+                limit: u6 = 0,
+            };
             const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b1111;
+            const mask = (self.capacity() - 1) & comptime ~((GroupSize << 1) - 1);
             var limit = @ctz(self.capacity());
 
             var idx: usize = @truncate(hash & mask);
@@ -237,201 +239,123 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             const fingerprint = Metadata.takeFingerprint(hash);
             var expected: Metadata = .{};
             expected.fill(fingerprint);
-            var firstTombStone: struct { index: usize = 0, robinHood: u6 = 0 } = .{};
-            var firstRobinHood: struct { index: usize = 0, robinHood: u6 = 0 } = .{};
 
-            while (limit != 0) : (limit -= 1) {
+            var firstTombStone: Info = .{ .slot = undefined };
+            var firstRobinHood: Info = .{ .slot = undefined };
+            var puttingInfo: Info = .{ .slot = undefined };
+
+            while (limit != 0) : (limit += 1) {
                 const startMetadataGroup = self.metadata.? + idx;
-                const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
-
-                const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
-                const robinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
-
                 const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
+
                 var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-                const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
-                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-
-                if (equalTombstone != 0) {
-                    if (firstTombStone.robinHood == 0) firstTombStone = .{ .index = idx + @ctz(equalTombstone), .robinHood = limit };
-                }
-
-                if (robinHood != 0) {
-                    if (firstRobinHood.robinHood == 0) firstRobinHood = .{ .index = idx + @ctz(robinHood), .robinHood = limit };
-                }
-
                 while (equalExpected != 0) {
                     const offset = @ctz(equalExpected);
-                    const index = idx + offset;
+                    const index = (idx >> 1) + offset;
 
                     if (ctx.eql(self.keys()[index], key)) {
-                        self.values()[index] = value;
-                        return;
+                        return .{
+                            .existed = true,
+                            .key = &self.keys()[index],
+                            .value = &self.values()[index],
+                        };
                     }
 
                     equalExpected ^= std.math.shl(u8, 1, offset);
                 }
 
+                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
+
                 if (equalFree != 0) {
-                    if (firstRobinHood.robinHood != 0 or firstTombStone.robinHood != 0) break;
                     const offset = @ctz(equalFree);
-                    const index = idx + offset;
+                    const index = (idx >> 1) + offset;
+                    puttingInfo = .{
+                        .slot = .{
+                            .existed = false,
+                            .key = &self.keys()[index],
+                            .value = &self.values()[index],
+                        },
+                        .robinHood = @ptrCast(self.metadata.? + idx + GroupSize + offset),
+                        .limit = limit,
+                    };
 
-                    self.metadata.?[index].fill(fingerprint);
-                    self.metadata.?[self.capacity() + index].robinHood(limit);
-                    self.keys()[index] = key;
-                    self.values()[index] = value;
-
-                    self.size += 1;
-                    self.available -= 1;
-
-                    return;
+                    break;
                 }
+
+                const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
+                const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
+                const robinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
+
+                const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
+
+                if (equalTombstone != 0)
+                    if (firstTombStone.robinHood == null) {
+                        const offset = @ctz(equalTombstone);
+                        const index = (idx >> 1) + offset;
+
+                        firstTombStone = .{
+                            .slot = .{
+                                .existed = false,
+                                .key = &self.keys()[index],
+                                .value = &self.values()[index],
+                            },
+                            .robinHood = @ptrCast(self.metadata.? + idx + GroupSize + offset),
+                            .limit = limit,
+                        };
+                    };
+
+                if (robinHood != 0)
+                    if (firstRobinHood.robinHood == null) {
+                        const offset = @ctz(equalTombstone);
+                        const index = (idx >> 1) + offset;
+
+                        firstRobinHood = .{
+                            .slot = .{
+                                .existed = false,
+                                .key = &self.keys()[index],
+                                .value = &self.values()[index],
+                            },
+                            .robinHood = @ptrCast(self.metadata.? + idx + GroupSize + offset),
+                            .limit = limit,
+                        };
+                    };
 
                 idx = (idx + 2 * GroupSize) & mask;
             }
 
-            if (firstTombStone.robinHood != 0) {
-                self.metadata.?[firstTombStone.index].fill(fingerprint);
-                self.metadata.?[self.capacity() + firstTombStone.index].robinHood(firstTombStone.robinHood);
-                self.keys()[firstTombStone.index] = key;
-                self.values()[firstTombStone.index] = value;
+            const infos: [3]Info = .{ puttingInfo, firstRobinHood, firstTombStone };
+            var min: Info = .{ .slot = undefined };
 
-                self.size += 1;
-                self.available -= 1;
-
-                return;
+            for (infos) |info| {
+                if (min.robinHood == null and info.limit > min.limit) min = info;
             }
 
-            if (firstRobinHood.robinHood != 0) {
-                self.metadata.?[firstRobinHood.index].fill(fingerprint);
-                self.metadata.?[self.capacity() + firstRobinHood.index].robinHood(firstRobinHood.robinHood);
+            if (min.robinHood == null) @panic("Todo: Expand");
 
-                const oldK = self.keys()[firstRobinHood.index];
-                const oldV = self.values()[firstRobinHood.index];
+            min.robinHood.?.* = min.limit;
 
-                self.keys()[firstRobinHood.index] = key;
-                self.values()[firstRobinHood.index] = value;
+            return min.slot;
+        }
 
-                // TODO: Create a put with assume capacity and no duplicate key
-                try self.put(alloc, oldK, oldV);
-
-                return;
-            }
-
-            if (limit == 0) {
-                try self.grow(alloc, try std.math.ceilPowerOfTwo(Size, self.capacity() + 1), ctx);
-
-                // TODO: Create a put with assume capacity and no duplicate key
-                try self.put(alloc, key, value);
-            }
+        pub fn put(self: *Self, alloc: Allocator, key: K, value: V) (Allocator.Error || error{Overflow})!void {
+            _ = .{ self, alloc, key, value };
+            @panic("Todo");
         }
 
         pub fn getOrPutValue(self: *Self, alloc: Allocator, key: K, value: V) !Entry {
+            _ = alloc;
             const ctx: Context = undefined;
-            try self.growIfNeeded(alloc, 1, ctx);
+            const slot = self.getSlot(key, ctx);
 
-            const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) ^ 0b1111;
-            var limit = @ctz(self.capacity());
-
-            // Divide by group
-            var idx: usize = @truncate(hash & mask);
-
-            const fingerprint = Metadata.takeFingerprint(hash);
-            var expected: Metadata = .{};
-            expected.fill(fingerprint);
-            var firstTombStone: struct { index: usize = 0, robinHood: u6 = 0 } = .{};
-            var firstRobinHood: struct { index: usize = 0, robinHood: u6 = 0 } = .{};
-
-            while (limit != 0) : (limit -= 1) {
-                const startMetadataGroup = self.metadata.? + idx;
-                const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
-
-                const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
-                const robinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
-
-                const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
-                var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-                const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
-                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-
-                if (equalTombstone != 0) {
-                    if (firstTombStone.robinHood == 0) firstTombStone = .{ .index = idx + @ctz(equalTombstone), .robinHood = limit };
-                }
-
-                if (robinHood != 0) {
-                    if (firstRobinHood.robinHood == 0) firstRobinHood = .{ .index = idx + @ctz(robinHood), .robinHood = limit };
-                }
-
-                while (equalExpected != 0) {
-                    const offset = @ctz(equalExpected);
-                    const index = idx + offset;
-                    const storedKey = self.keys()[index];
-
-                    if (ctx.eql(storedKey, key)) {
-                        return .{ .key = &self.keys()[index], .value = &self.values()[index] };
-                    }
-
-                    equalExpected ^= std.math.shl(u8, 1, offset);
-                }
-
-                if (equalFree != 0) {
-                    if (firstRobinHood.robinHood != 0 or firstTombStone.robinHood != 0) break;
-                    const offset = @ctz(equalFree);
-                    const index = idx + offset;
-
-                    self.metadata.?[index].fill(fingerprint);
-                    self.metadata.?[self.capacity() + index].robinHood(limit);
-                    self.keys()[index] = key;
-                    self.values()[index] = value;
-
-                    self.size += 1;
-                    self.available -= 1;
-
-                    return .{ .key = &self.keys()[index], .value = &self.values()[index] };
-                }
-
-                idx = (idx + 2 * GroupSize) & mask;
+            if (!slot.existed) {
+                slot.key.* = key;
+                slot.value.* = value;
             }
 
-            if (firstTombStone.robinHood != 0) {
-                self.metadata.?[firstTombStone.index].fill(fingerprint);
-                self.metadata.?[self.capacity() + firstTombStone.index].robinHood(firstTombStone.robinHood);
-                self.keys()[firstTombStone.index] = key;
-                self.values()[firstTombStone.index] = value;
-
-                self.size += 1;
-                self.available -= 1;
-
-                return .{ .key = &self.keys()[firstTombStone.index], .value = &self.values()[firstTombStone.index] };
-            }
-
-            if (firstRobinHood.robinHood != 0) {
-                self.metadata.?[firstRobinHood.index].fill(fingerprint);
-                self.metadata.?[self.capacity() + firstRobinHood.index].robinHood(firstRobinHood.robinHood);
-
-                const oldK = self.keys()[firstRobinHood.index];
-                const oldV = self.values()[firstRobinHood.index];
-
-                self.keys()[firstRobinHood.index] = key;
-                self.values()[firstRobinHood.index] = value;
-
-                // TODO: Create a put with assume capacity and no duplicate key
-                try self.put(alloc, oldK, oldV);
-
-                return .{ .key = &self.keys()[firstRobinHood.index], .value = &self.values()[firstRobinHood.index] };
-            }
-
-            if (limit == 0) {
-                const newCapacity = std.math.mul(Size, self.capacity(), 2) catch return error.Overflow;
-                try self.grow(alloc, newCapacity, ctx);
-
-                // TODO: Create a put with assume capacity and no duplicate key
-                return try self.getOrPutValue(alloc, key, value);
-            }
-
-            unreachable;
+            return .{
+                .key = slot.key,
+                .value = slot.value,
+            };
         }
 
         pub fn get(self: *Self, key: K) ?V {
