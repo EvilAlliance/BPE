@@ -239,23 +239,17 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         }
 
         fn getSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) !Slot {
-            const Info = struct {
-                slot: Slot,
-                metadata: ?[*]Metadata = null,
-                limit: u32 = 0,
-            };
             const hash: Hash = ctx.hash(key);
             const mask = (self.capacity() - 1) & comptime ~(GroupSize - 1);
             var limit: u32 = @ctz(self.capacity()) >> comptime @ctz(GroupSize);
-
             var idx: usize = @truncate(hash & mask);
 
             const fingerprint = Metadata.takeFingerprint(hash);
             var expected: Metadata = .{};
             expected.fill(fingerprint);
 
-            var firstTombStone: Info = .{ .slot = undefined };
-            var puttingInfo: Info = .{ .slot = undefined };
+            var insertMeta: ?[*]Metadata = null;
+            var insertSlot: Slot = undefined;
 
             while (limit != 0) : (limit -= 1) {
                 const startMetadataGroup = self.metadata.? + idx;
@@ -265,64 +259,36 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 while (equalExpected != 0) {
                     const offset = @ctz(equalExpected);
                     const index = idx + offset;
-
                     if (ctx.eql(self.keys()[index], key)) {
-                        return .{
-                            .existed = true,
-                            .key = &self.keys()[index],
-                            .value = &self.values()[index],
-                        };
+                        return .{ .existed = true, .key = &self.keys()[index], .value = &self.values()[index] };
                     }
-
                     equalExpected &= ~std.math.shl(u8, 1, offset);
                 }
 
                 const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
                 const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
-                const firsts: [2]struct { *Info, u8 } = .{ .{ &puttingInfo, equalFree }, .{ &firstTombStone, equalTombstone } };
 
-                for (firsts) |first| {
-                    const info, const equal = first;
-                    if (equal == 0 or info.metadata != null) continue;
-
-                    const offset = @ctz(equal);
-                    const index = idx + offset;
-
-                    info.* = .{
-                        .slot = .{
-                            .existed = false,
-                            .key = &self.keys()[index],
-                            .value = &self.values()[index],
-                        },
-                        .metadata = self.metadata.? + index,
-                        .limit = limit,
-                    };
+                if (insertMeta == null and (equalTombstone | equalFree) != 0) {
+                    const index = idx + @ctz(equalTombstone | equalFree);
+                    insertMeta = self.metadata.? + index;
+                    insertSlot = .{ .existed = false, .key = &self.keys()[index], .value = &self.values()[index] };
                 }
 
                 if (equalFree != 0) break;
-
                 idx = (idx + GroupSize) & mask;
             }
 
-            const infos: [2]Info = .{ puttingInfo, firstTombStone };
-            var min: Info = .{ .slot = undefined };
-
-            for (infos) |info| {
-                if (info.metadata != null and info.limit > min.limit) min = info;
-            }
-
-            if (min.metadata == null) {
+            const meta = insertMeta orelse {
                 assert(limit == 0);
                 try self.grow(alloc, capacityForSize(self.capacity() + 1), ctx);
                 return try self.getSlot(alloc, key, ctx);
-            }
+            };
 
-            min.metadata.?[0].fill(fingerprint);
-
+            meta[0].fill(fingerprint);
             self.available -= 1;
             self.size += 1;
 
-            return min.slot;
+            return insertSlot;
         }
 
         pub fn ensureTotalCapacity(self: *Self, alloc: Allocator, newCapacity: Size) !void {
