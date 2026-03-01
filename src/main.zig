@@ -67,7 +67,11 @@ fn bypePairEncodingSortedArray(alloc: Allocator, reader: *io.Reader) !void {
     }
 
     const elapsed = time.lap();
-    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
+    const avgSeconds: f64 =
+        @as(f64, @floatFromInt(elapsed)) /
+        @as(f64, @floatFromInt(i / reportEach)) /
+        @as(f64, @floatFromInt(std.time.ns_per_s));
+    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
     std.log.info("Resulting Dic", .{});
@@ -75,13 +79,6 @@ fn bypePairEncodingSortedArray(alloc: Allocator, reader: *io.Reader) !void {
         for (0..255) |r|
             if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
                 std.log.info("    ({}, {}) => {}", .{ l, r, x.count });
-            };
-
-    std.log.info("Missing pair", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r))) == null) {
-                std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
@@ -138,7 +135,11 @@ fn bypePairEncodingAVL(alloc: Allocator, reader: *io.Reader) !void {
     }
 
     const elapsed = time.lap();
-    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
+    const avgSeconds: f64 =
+        @as(f64, @floatFromInt(elapsed)) /
+        @as(f64, @floatFromInt(i / reportEach)) /
+        @as(f64, @floatFromInt(std.time.ns_per_s));
+    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
     std.log.info("Resulting Dic", .{});
@@ -147,13 +148,6 @@ fn bypePairEncodingAVL(alloc: Allocator, reader: *io.Reader) !void {
             if (dic.get(&Pair.init(@intCast(l), @intCast(r)).node)) |x| {
                 const p: *const Pair = @fieldParentPtr("node", x);
                 std.log.info("    ({}, {}) => {}", .{ l, r, p.count });
-            };
-
-    std.log.info("Missing pair", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(&Pair.init(@intCast(l), @intCast(r)).node) == null) {
-                std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
@@ -202,7 +196,11 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
     }
 
     const elapsed = time.lap();
-    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
+    const avgSeconds: f64 =
+        @as(f64, @floatFromInt(elapsed)) /
+        @as(f64, @floatFromInt(i / reportEach)) /
+        @as(f64, @floatFromInt(std.time.ns_per_s));
+    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
     std.log.info("Resulting Dic", .{});
@@ -210,13 +208,6 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
         for (0..255) |r|
             if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
                 std.log.info("    ({}, {}) => {}", .{ l, r, x });
-            };
-
-    std.log.info("Missing pair", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r))) == null) {
-                std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
@@ -236,7 +227,7 @@ fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
             var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
             x ^= x >> 33;
             x *%= 0xff51afd7ed558ccd;
-            x ^= x >> 33;
+            x ^= x << 33;
             x *%= 0xc4ceb9fe1a85ec53;
             x ^= x >> 33;
             return x;
@@ -265,7 +256,12 @@ fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
     }
 
     const elapsed = time.lap();
-    std.log.info("{} Seconds AVG in each {}", .{ (elapsed / (i / reportEach)) / std.time.ns_per_s, reportEach });
+
+    const avgSeconds: f64 =
+        @as(f64, @floatFromInt(elapsed)) /
+        @as(f64, @floatFromInt(i / reportEach)) /
+        @as(f64, @floatFromInt(std.time.ns_per_s));
+    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
     std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
 
     std.log.info("Resulting Dic", .{});
@@ -273,13 +269,6 @@ fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
         for (0..255) |r|
             if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
                 std.log.info("    ({}, {}) => {}", .{ l, r, x });
-            };
-
-    std.log.info("Missing pair", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r))) == null) {
-                std.log.warn("    ({}, {})", .{ l, r });
             };
 }
 
@@ -295,3 +284,7 @@ const File = std.fs.File;
 const Timer = std.time.Timer;
 const io = std.io;
 const assert = std.debug.assert;
+
+test "Main" {
+    _ = @import("HashMap.zig");
+}
