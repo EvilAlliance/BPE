@@ -187,8 +187,10 @@ fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
         const r = reader.peekByte() catch break;
         const toInsert = Pair.init(l, r);
 
-        const entry = try dic.getOrPutValue(alloc, toInsert, 0);
-        entry.value_ptr.* += 1;
+        if (dic.getPtr(toInsert)) |value|
+            value.* += 1
+        else
+            try dic.put(alloc, toInsert, 1);
 
         if (i % reportEach == 0) {
             std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count() });
@@ -247,8 +249,10 @@ fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
         const r = reader.peekByte() catch break;
         const toInsert = Pair.init(l, r);
 
-        const entry = try dic.getOrPutValue(alloc, toInsert, 0);
-        entry.value.* += 1;
+        if (dic.getPtr(toInsert)) |value|
+            value.* += 1
+        else
+            try dic.put(alloc, toInsert, 1);
 
         if (i % reportEach == 0) {
             std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count() });

@@ -9,7 +9,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putContext instead.");
     return struct {
         const Self = @This();
-        const Size = u32;
+        const Size = usize;
 
         const GroupSize: Size = 8;
         const RobinHood = u8;
@@ -62,7 +62,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             const maxAlign = comptime @max(headerAlign, keyAlign, valAlign);
 
             const newCap: usize = self.capacity();
-            const metaSize = @sizeOf(Header) + newCap * @sizeOf(Metadata); // * 2;
+            const metaSize = @sizeOf(Header) + newCap * @sizeOf(Metadata) * 2;
             comptime assert(@alignOf(Metadata) == 1);
 
             const keysStart = std.mem.alignForward(usize, metaSize, keyAlign);
@@ -85,7 +85,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             const maxAlign: std.mem.Alignment = comptime .fromByteUnits(@max(headerAlign, keyAlign, valAlign));
 
             const newCap: usize = newCapacity;
-            const metaSize = @sizeOf(Header) + newCap * @sizeOf(Metadata); // * 2;
+            const metaSize = @sizeOf(Header) + newCap * @sizeOf(Metadata) * 2;
             comptime assert(@alignOf(Metadata) == 1);
 
             const keysStart = std.mem.alignForward(usize, metaSize, keyAlign);
@@ -113,7 +113,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         }
 
         fn initMetadata(self: *Self) void {
-            @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
+            @memset(@as([*]u8, @ptrCast(self.metadata.?))[0..(@sizeOf(Metadata) * self.capacity() << 1)], 0);
         }
 
         //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -163,28 +163,18 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
             if (self.size != 0) {
                 const oldCapacity = self.capacity();
-                // var idx: usize = 0;
-                // blk: while (idx < oldCapacity * 2) : (idx += 2 * GroupSize) {
-                //     for (
-                //         self.metadata.?[idx .. idx + GroupSize],
-                //         self.keys()[idx .. idx + GroupSize],
-                //         self.values()[idx .. idx + GroupSize],
-                //     ) |m, k, v| {
-                //         _ = ctx;
-                //         if (!m.isUsed()) continue;
-                //         try map.put(alloc, k, v);
-                //         if (map.size == self.size) break :blk;
-                //     }
-                // }
-
-                for (
-                    self.metadata.?[0..oldCapacity],
-                    self.keys()[0..oldCapacity],
-                    self.values()[0..oldCapacity],
-                ) |m, k, v| {
-                    _ = ctx;
-                    if (!m.isUsed()) continue;
-                    try map.put(alloc, k, v);
+                var idx: usize = 0;
+                blk: while (idx < oldCapacity * 2) : (idx += GroupSize << 1) {
+                    for (
+                        self.metadata.?[idx .. idx + GroupSize],
+                        self.keys()[(idx >> 1) .. (idx >> 1) + GroupSize],
+                        self.values()[(idx >> 1) .. (idx >> 1) + GroupSize],
+                    ) |m, k, v| {
+                        _ = ctx;
+                        if (!m.isUsed()) continue;
+                        try map.put(alloc, k, v);
+                        if (map.size == self.size) break :blk;
+                    }
                 }
             }
 
@@ -207,10 +197,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             insert: bool = true,
         };
 
-        fn getSlot(self: *Self, comptime options: GetSlotOptions, alloc: if (options.insert) Allocator else void, key: K, ctx: anytype) if (options.insert) (Allocator.Error || error{Overflow})!Slot else ?Slot {
+        fn getSlot(self: *Self, comptime options: GetSlotOptions, alloc: if (options.insert) Allocator else void, key: K, ctx: anytype) if (options.insert) (Allocator.Error || error{ Overflow, Expand })!Slot else ?Slot {
             const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) & comptime ~(GroupSize - 1);
-            var limit: u32 = @ctz(self.capacity()) >> comptime @ctz(GroupSize);
+            const mask = ((self.capacity() - 1) & comptime ~(GroupSize - 1)) << 1;
+            var limit = @ctz(self.capacity()) >> comptime @ctz(GroupSize);
             var idx: usize = @truncate(hash & mask);
 
             const fingerprint = Metadata.takeFingerprint(hash);
@@ -218,7 +208,9 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             expected.fill(fingerprint);
 
             var insertMeta: ?[*]Metadata = null;
-            var insertSlot: Slot = undefined;
+            var limitMeta: u7 = 0;
+            var indexSlot: usize = undefined;
+            var usingRobinHood = false;
 
             while (limit != 0) : (limit -= 1) {
                 const startMetadataGroup = self.metadata.? + idx;
@@ -228,7 +220,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                     var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
                     while (equalExpected != 0) {
                         const offset = @ctz(equalExpected);
-                        const index = idx + offset;
+                        const index = (idx >> 1) + offset;
                         if (ctx.eql(self.keys()[index], key)) {
                             return .{ .existed = true, .key = &self.keys()[index], .value = &self.values()[index] };
                         }
@@ -239,45 +231,84 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
 
                 if (options.insert) {
+                    const startRobinHoodGroup = self.metadata.? + idx + GroupSize;
+                    const vecRobinHood: @Vector(GroupSize, u8) = @bitCast(startRobinHoodGroup[0..GroupSize].*);
+
                     const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
-                    if (insertMeta == null and (equalTombstone | equalFree) != 0) {
-                        const index = idx + @ctz(equalTombstone | equalFree);
-                        insertMeta = self.metadata.? + index;
-                        insertSlot = .{ .existed = false, .key = &self.keys()[index], .value = &self.values()[index] };
+                    const betterRobinHood: u8 = @bitCast(vecRobinHood > @as(@Vector(GroupSize, u8), @splat(limit)));
+
+                    const joined = (equalTombstone | equalFree | betterRobinHood);
+                    if (insertMeta == null and joined != 0) {
+                        const index = (idx >> 1) + @ctz(joined);
+                        insertMeta = self.metadata.? + idx + @ctz(joined);
+                        limitMeta = limit;
+                        usingRobinHood = (betterRobinHood & std.math.shl(u8, 1, @ctz(joined))) != 0;
+                        indexSlot = index;
                     }
                 }
 
                 if (equalFree != 0) break;
-                idx = (idx + GroupSize) & mask;
+                idx = (idx + (GroupSize << 1)) & mask;
             }
 
             if (options.insert) {
                 const meta = insertMeta orelse {
-                    assert(limit == 0);
-                    try self.grow(alloc, capacityForSize(self.capacity() + 1), ctx);
-                    return try self.getSlot(options, alloc, key, ctx);
+                    return error.Expand;
                 };
 
-                meta[0].fill(fingerprint);
-                self.available -= 1;
-                self.size += 1;
+                const oldMeta = meta[0];
+                const oldRobinMeta = meta[GroupSize];
 
-                return insertSlot;
+                meta[0].fill(fingerprint);
+                meta[GroupSize].robinHood(limitMeta);
+                errdefer {
+                    meta[0] = oldMeta;
+                    meta[GroupSize] = oldRobinMeta;
+                }
+
+                if (usingRobinHood) {
+                    const oldKey = self.keys()[indexSlot];
+                    const oldValue = self.values()[indexSlot];
+
+                    const slot = try self.getSlot(.{ .search = false }, alloc, oldKey, ctx);
+
+                    slot.key.* = oldKey;
+                    slot.value.* = oldValue;
+                } else {
+                    self.available -= 1;
+                    self.size += 1;
+                }
+
+                return .{
+                    .existed = false,
+                    .key = &self.keys()[indexSlot],
+                    .value = &self.values()[indexSlot],
+                };
             } else {
                 return null;
             }
         }
 
-        inline fn findSlot(self: *Self, key: K, ctx: anytype) ?Slot {
+        fn findSlot(self: *Self, key: K, ctx: anytype) ?Slot {
             return self.getSlot(.{ .insert = false }, {}, key, ctx);
         }
 
-        inline fn getOrPutSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
-            return self.getSlot(.{}, alloc, key, ctx);
+        fn getSlotWithRetry(self: *Self, comptime options: GetSlotOptions, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
+            return self.getSlot(options, alloc, key, ctx) catch |err| switch (err) {
+                error.Expand => {
+                    try self.grow(alloc, capacityForSize(self.capacity() + 1), ctx);
+                    return self.getSlotWithRetry(options, alloc, key, ctx);
+                },
+                else => return @errorCast(err),
+            };
         }
 
-        inline fn putSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
-            return self.getSlot(.{ .search = false }, alloc, key, ctx);
+        fn getOrPutSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
+            return self.getSlotWithRetry(.{}, alloc, key, ctx);
+        }
+
+        fn putSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
+            return self.getSlotWithRetry(.{ .search = false }, alloc, key, ctx);
         }
 
         pub fn ensureTotalCapacity(self: *Self, alloc: Allocator, newCapacity: Size) !void {
@@ -317,6 +348,12 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
             const ctx: Context = undefined;
             const slot = self.findSlot(key, ctx) orelse return null;
             return slot.value.*;
+        }
+
+        pub fn getPtr(self: *Self, key: K) ?*V {
+            const ctx: Context = undefined;
+            const slot = self.findSlot(key, ctx) orelse return null;
+            return slot.value;
         }
 
         pub fn count(self: *const Self) Size {
@@ -365,7 +402,7 @@ const Metadata = packed struct {
         self.fingerPrint = tombstone;
     }
 
-    pub fn robinHood(self: *Metadata, rb: u6) void {
+    pub fn robinHood(self: *Metadata, rb: u7) void {
         self.used = 0;
         self.fingerPrint = @intCast(rb);
     }
@@ -404,6 +441,8 @@ test "HashMap Stress Test" {
     var i: u32 = 0;
     while (i < 1_000_000) : (i += 1) {
         try map.put(alloc, i, i * 2);
+        if (i > 17287 and map.get(17287) == null) std.debug.panic("Not Found in {}\n", .{i});
+
         if (i % 100_000 == 0 and i > 0) {
             std.debug.print("  Inserted {d} entries, size={d}, capacity={d}\n", .{ i, map.count(), map.capacity() });
         }
