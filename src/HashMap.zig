@@ -202,43 +202,12 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         //////////////////////////////////////////////////////////////////////////////////////////////////////
         //                                               Utils
         //////////////////////////////////////////////////////////////////////////////////////////////////////
-        pub fn getIndex(self: *Self, key: K, ctx: anytype) ?usize {
-            const hash: Hash = ctx.hash(key);
-            const mask = (self.capacity() - 1) & comptime ~(GroupSize - 1);
-            var limit: u32 = @ctz(self.capacity()) >> comptime @ctz(GroupSize);
+        const GetSlotOptions = struct {
+            search: bool = true,
+            insert: bool = true,
+        };
 
-            var idx: usize = @truncate(hash & mask);
-
-            const fingerprint = Metadata.takeFingerprint(hash);
-            var expected: Metadata = .{};
-            expected.fill(fingerprint);
-
-            while (limit != 0) : (limit -= 1) {
-                const startMetadataGroup = self.metadata.? + idx;
-                const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
-                var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-
-                while (equalExpected != 0) {
-                    const offset = @ctz(equalExpected);
-                    const index = idx + offset;
-
-                    if (ctx.eql(self.keys()[index], key)) {
-                        return index;
-                    }
-
-                    equalExpected &= ~std.math.shl(u8, 1, offset);
-                }
-
-                const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-                if (equalFree != 0) break;
-
-                idx = (idx + GroupSize) & mask;
-            }
-
-            return null;
-        }
-
-        fn getSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) !Slot {
+        fn getSlot(self: *Self, comptime options: GetSlotOptions, alloc: if (options.insert) Allocator else void, key: K, ctx: anytype) if (options.insert) (Allocator.Error || error{Overflow})!Slot else ?Slot {
             const hash: Hash = ctx.hash(key);
             const mask = (self.capacity() - 1) & comptime ~(GroupSize - 1);
             var limit: u32 = @ctz(self.capacity()) >> comptime @ctz(GroupSize);
@@ -255,40 +224,60 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
                 const startMetadataGroup = self.metadata.? + idx;
                 const vecMetadata: @Vector(GroupSize, u8) = @bitCast(startMetadataGroup[0..GroupSize].*);
 
-                var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
-                while (equalExpected != 0) {
-                    const offset = @ctz(equalExpected);
-                    const index = idx + offset;
-                    if (ctx.eql(self.keys()[index], key)) {
-                        return .{ .existed = true, .key = &self.keys()[index], .value = &self.values()[index] };
+                if (options.search) {
+                    var equalExpected: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(expected))));
+                    while (equalExpected != 0) {
+                        const offset = @ctz(equalExpected);
+                        const index = idx + offset;
+                        if (ctx.eql(self.keys()[index], key)) {
+                            return .{ .existed = true, .key = &self.keys()[index], .value = &self.values()[index] };
+                        }
+                        equalExpected &= ~std.math.shl(u8, 1, offset);
                     }
-                    equalExpected &= ~std.math.shl(u8, 1, offset);
                 }
 
                 const equalFree: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.freeSlote))));
-                const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
 
-                if (insertMeta == null and (equalTombstone | equalFree) != 0) {
-                    const index = idx + @ctz(equalTombstone | equalFree);
-                    insertMeta = self.metadata.? + index;
-                    insertSlot = .{ .existed = false, .key = &self.keys()[index], .value = &self.values()[index] };
+                if (options.insert) {
+                    const equalTombstone: u8 = @bitCast(vecMetadata == @as(@Vector(GroupSize, u8), @splat(@bitCast(Metadata.tombstoneSlote))));
+                    if (insertMeta == null and (equalTombstone | equalFree) != 0) {
+                        const index = idx + @ctz(equalTombstone | equalFree);
+                        insertMeta = self.metadata.? + index;
+                        insertSlot = .{ .existed = false, .key = &self.keys()[index], .value = &self.values()[index] };
+                    }
                 }
 
                 if (equalFree != 0) break;
                 idx = (idx + GroupSize) & mask;
             }
 
-            const meta = insertMeta orelse {
-                assert(limit == 0);
-                try self.grow(alloc, capacityForSize(self.capacity() + 1), ctx);
-                return try self.getSlot(alloc, key, ctx);
-            };
+            if (options.insert) {
+                const meta = insertMeta orelse {
+                    assert(limit == 0);
+                    try self.grow(alloc, capacityForSize(self.capacity() + 1), ctx);
+                    return try self.getSlot(options, alloc, key, ctx);
+                };
 
-            meta[0].fill(fingerprint);
-            self.available -= 1;
-            self.size += 1;
+                meta[0].fill(fingerprint);
+                self.available -= 1;
+                self.size += 1;
 
-            return insertSlot;
+                return insertSlot;
+            } else {
+                return null;
+            }
+        }
+
+        inline fn findSlot(self: *Self, key: K, ctx: anytype) ?Slot {
+            return self.getSlot(.{ .insert = false }, {}, key, ctx);
+        }
+
+        inline fn getOrPutSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
+            return self.getSlot(.{}, alloc, key, ctx);
+        }
+
+        inline fn putSlot(self: *Self, alloc: Allocator, key: K, ctx: anytype) (Allocator.Error || error{Overflow})!Slot {
+            return self.getSlot(.{ .search = false }, alloc, key, ctx);
         }
 
         pub fn ensureTotalCapacity(self: *Self, alloc: Allocator, newCapacity: Size) !void {
@@ -299,7 +288,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         pub fn put(self: *Self, alloc: Allocator, key: K, value: V) (Allocator.Error || error{Overflow})!void {
             const ctx: Context = undefined;
             try self.growIfNeeded(alloc, 1, ctx);
-            const slot = try self.getSlot(alloc, key, ctx);
+            const slot = try self.getOrPutSlot(alloc, key, ctx);
 
             if (!slot.existed) {
                 slot.key.* = key;
@@ -311,7 +300,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
         pub fn getOrPutValue(self: *Self, alloc: Allocator, key: K, value: V) !Entry {
             const ctx: Context = undefined;
             try self.growIfNeeded(alloc, 1, ctx);
-            const slot = try self.getSlot(alloc, key, ctx);
+            const slot = try self.getOrPutSlot(alloc, key, ctx);
 
             if (!slot.existed) {
                 slot.key.* = key;
@@ -326,8 +315,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime Context: type, compt
 
         pub fn get(self: *Self, key: K) ?V {
             const ctx: Context = undefined;
-
-            return if (self.getIndex(key, ctx)) |i| self.values()[i] else null;
+            const slot = self.findSlot(key, ctx) orelse return null;
+            return slot.value.*;
         }
 
         pub fn count(self: *const Self) Size {
