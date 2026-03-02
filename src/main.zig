@@ -17,268 +17,104 @@ fn juicyMain(alloc: Allocator) !void {
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
     defer file.close();
 
-    var buffer: [std.math.pow(usize, 2, 10)]u8 = undefined;
-
-    var readerLiteral = file.reader(&buffer);
-    const reader = &readerLiteral.interface;
-
-    try bypePairEncodingMyHashMap(alloc, reader);
+    try bypePairEncodingHashMap(alloc, file);
 }
 
-fn bypePairEncodingSortedArray(alloc: Allocator, reader: *io.Reader) !void {
-    const Pair = packed struct {
-        const Self = @This();
-        l: u16,
-        r: u16,
-        count: u32 = 1,
+fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
+    const Bpe = BPE(u16);
 
-        pub fn init(l: u16, r: u16) Self {
-            return .{ .l = l, .r = r };
-        }
+    var bpe = try Bpe.init(alloc, file);
+    try bpe.populate(alloc);
+    try bpe.print();
+}
 
-        pub fn compare(self: Self, b: Self) Order {
-            if (self.l < b.l) return .lt;
-            if (self.l > b.l) return .gt;
-            if (self.r < b.r) return .lt;
-            if (self.r > b.r) return .gt;
-
-            return .eq;
-        }
-    };
-
-    var dic: SortedArrayList(Pair, Pair.compare) = .{};
-    try dic.ensureTotalCapacity(alloc, std.math.pow(usize, std.math.maxInt(u8), 2));
-
-    var i: usize = 0;
-    const reportEach = std.math.pow(usize, 10, 7);
-
-    var time = try Timer.start();
-    while (reader.takeByte() catch null) |l| : (i += 1) {
-        const r = reader.peekByte() catch break;
-        const toInsert = Pair{ .l = l, .r = r };
-
-        if (try dic.putOrGet(alloc, toInsert)) |x| {
-            x.count += 1;
-        }
-
-        if (i % reportEach == 0) {
-            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.list.items.len });
-        }
+pub fn BPE(T: type) type {
+    const typeInfo = @typeInfo(T);
+    switch (typeInfo) {
+        .int => |i| {
+            if (i.signedness == .signed) @compileError("Expected unsinged");
+            if (i.bits <= 8) @compileError("Cannot Extend the domain if it es less than u8");
+        },
+        else => @compileError("Invalid Type, Expects any type of unsigned int"),
     }
 
-    const elapsed = time.lap();
-    const avgSeconds: f64 =
-        @as(f64, @floatFromInt(elapsed)) /
-        @as(f64, @floatFromInt(i / reportEach)) /
-        @as(f64, @floatFromInt(std.time.ns_per_s));
-    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
-    std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
-
-    std.log.info("Resulting Dic", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
-                std.log.info("    ({}, {}) => {}", .{ l, r, x.count });
-            };
-}
-
-fn bypePairEncodingAVL(alloc: Allocator, reader: *io.Reader) !void {
-    const Pair = struct {
+    return struct {
         const Self = @This();
-        node: AVL.Node = .{},
-        l: u16,
-        r: u16,
-        count: u32 = 1,
 
-        pub fn init(l: u16, r: u16) Self {
-            return .{ .l = l, .r = r };
+        const Pair = struct {
+            l: T,
+            r: T,
+
+            pub const Context = struct {
+                pub fn hash(_: @This(), p: Pair) usize {
+                    var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
+                    x ^= x >> 33;
+                    x *%= 0xff51afd7ed558ccd;
+                    x ^= x >> 33;
+                    x *%= 0xc4ceb9fe1a85ec53;
+                    x ^= x >> 33;
+                    return x;
+                }
+
+                pub fn eql(_: @This(), a: Pair, b: Pair) bool {
+                    return a.l == b.l and a.r == b.r;
+                }
+            };
+
+            pub fn init(l: T, r: T) Pair {
+                return .{ .l = l, .r = r };
+            }
+        };
+
+        d: std.HashMapUnmanaged(Pair, u32, Pair.Context, 80) = .{},
+        file: std.fs.File,
+
+        pub fn init(alloc: Allocator, file: std.fs.File) Allocator.Error!Self {
+            std.log.info("Intializing the BPE", .{});
+            var self = Self{ .file = file };
+            try self.d.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
+
+            return self;
         }
 
-        pub fn compare(self: *const Self, b: *const Self) Order {
-            if (self.l < b.l) return .lt;
-            if (self.l > b.l) return .gt;
-            if (self.r < b.r) return .lt;
-            if (self.r > b.r) return .gt;
+        pub fn populate(self: *Self, alloc: Allocator) !void {
+            std.log.info("Populating the Dic", .{});
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var readerIO = self.file.reader(&buffer);
+            const reader = &readerIO.interface;
 
-            return .eq;
+            var before: T = try reader.takeByte();
+            while (reader.takeByte() catch null) |r| {
+                const toInsert = Pair.init(before, r);
+                defer before = toInsert.r;
+
+                if (self.d.getPtr(toInsert)) |value|
+                    value.* += 1
+                else
+                    try self.d.put(alloc, toInsert, 1);
+            }
+
+            std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.d.count(), (try self.file.getEndPos()) - 1 });
         }
 
-        pub fn compareNode(selfNode: *const AVL.Node, bNode: *const AVL.Node) Order {
-            const self: *const Self = @fieldParentPtr("node", selfNode);
-            const b: *const Self = @fieldParentPtr("node", bNode);
+        pub fn print(self: *const Self) !void {
+            std.log.info("Printing Dictionay", .{});
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            const stderr = std.fs.File.stdout();
+            var writerIO = stderr.writer(&buffer);
 
-            return self.compare(b);
+            const w = &writerIO.interface;
+            defer w.flush() catch @panic("Failed to print dic state\n");
+
+            _ = try w.write("Resulting Dic:\n");
+            for (0..255) |l|
+                for (0..255) |r|
+                    if (self.d.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
+                        try w.print("\t({}, {}) => {}\n", .{ l, r, x });
+                    };
         }
     };
-
-    var dic: AVL.AVL(Pair.compareNode) = .{};
-
-    var i: usize = 0;
-    const reportEach = std.math.pow(usize, 10, 7);
-    var toInsert = try alloc.create(Pair);
-
-    var time = try Timer.start();
-    while (reader.takeByte() catch null) |l| : (i += 1) {
-        const r = reader.peekByte() catch break;
-        toInsert.* = Pair.init(l, r);
-
-        if (dic.putOrGet(&toInsert.node)) |x| {
-            const p: *Pair = @fieldParentPtr("node", x);
-            p.count += 1;
-        } else {
-            toInsert = try alloc.create(Pair);
-        }
-
-        if (i % reportEach == 0) {
-            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count });
-        }
-    }
-
-    const elapsed = time.lap();
-    const avgSeconds: f64 =
-        @as(f64, @floatFromInt(elapsed)) /
-        @as(f64, @floatFromInt(i / reportEach)) /
-        @as(f64, @floatFromInt(std.time.ns_per_s));
-    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
-    std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
-
-    std.log.info("Resulting Dic", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(&Pair.init(@intCast(l), @intCast(r)).node)) |x| {
-                const p: *const Pair = @fieldParentPtr("node", x);
-                std.log.info("    ({}, {}) => {}", .{ l, r, p.count });
-            };
 }
-
-fn bypePairEncodingHashMap(alloc: Allocator, reader: *io.Reader) !void {
-    const Pair = struct {
-        const Self = @This();
-        l: u16,
-        r: u16,
-
-        pub fn init(l: u16, r: u16) Self {
-            return .{ .l = l, .r = r };
-        }
-    };
-
-    var dic: std.HashMapUnmanaged(Pair, u32, struct {
-        pub fn hash(_: @This(), p: Pair) usize {
-            var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
-            x ^= x >> 33;
-            x *%= 0xff51afd7ed558ccd;
-            x ^= x >> 33;
-            x *%= 0xc4ceb9fe1a85ec53;
-            x ^= x >> 33;
-            return x;
-        }
-        pub fn eql(_: @This(), a: Pair, b: Pair) bool {
-            return a.l == b.l and a.r == b.r;
-        }
-    }, 80) = .{};
-
-    try dic.ensureTotalCapacity(alloc, std.math.pow(u32, std.math.maxInt(u8), 2));
-
-    var i: usize = 0;
-    const reportEach = std.math.pow(usize, 10, 7);
-
-    var time = try Timer.start();
-    while (reader.takeByte() catch null) |l| : (i += 1) {
-        const r = reader.peekByte() catch break;
-        const toInsert = Pair.init(l, r);
-
-        if (dic.getPtr(toInsert)) |value|
-            value.* += 1
-        else
-            try dic.put(alloc, toInsert, 1);
-
-        if (i % reportEach == 0) {
-            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count() });
-        }
-    }
-
-    const elapsed = time.lap();
-    const avgSeconds: f64 =
-        @as(f64, @floatFromInt(elapsed)) /
-        @as(f64, @floatFromInt(i / reportEach)) /
-        @as(f64, @floatFromInt(std.time.ns_per_s));
-    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
-    std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
-
-    std.log.info("Resulting Dic", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
-                std.log.info("    ({}, {}) => {}", .{ l, r, x });
-            };
-}
-
-fn bypePairEncodingMyHashMap(alloc: Allocator, reader: *io.Reader) !void {
-    const Pair = struct {
-        const Self = @This();
-        l: u16,
-        r: u16,
-
-        pub fn init(l: u16, r: u16) Self {
-            return .{ .l = l, .r = r };
-        }
-    };
-
-    var dic: MyHashMap(Pair, u32, struct {
-        pub fn hash(_: @This(), p: Pair) usize {
-            var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
-            x ^= x >> 33;
-            x *%= 0xff51afd7ed558ccd;
-            x ^= x << 33;
-            x *%= 0xc4ceb9fe1a85ec53;
-            x ^= x >> 33;
-            return x;
-        }
-        pub fn eql(_: @This(), a: Pair, b: Pair) bool {
-            return a.l == b.l and a.r == b.r;
-        }
-    }, 50) = .{};
-
-    try dic.ensureTotalCapacity(alloc, std.math.pow(u32, std.math.maxInt(u8), 2));
-
-    var i: usize = 0;
-    const reportEach = std.math.pow(usize, 10, 7);
-
-    var time = try Timer.start();
-    while (reader.takeByte() catch null) |l| : (i += 1) {
-        const r = reader.peekByte() catch break;
-        const toInsert = Pair.init(l, r);
-
-        if (dic.getPtr(toInsert)) |value|
-            value.* += 1
-        else
-            try dic.put(alloc, toInsert, 1);
-
-        if (i % reportEach == 0) {
-            std.log.info("{} Seconds for {} pairs, count: {}", .{ time.read() / std.time.ns_per_s, i, dic.count() });
-        }
-    }
-
-    const elapsed = time.lap();
-
-    const avgSeconds: f64 =
-        @as(f64, @floatFromInt(elapsed)) /
-        @as(f64, @floatFromInt(i / reportEach)) /
-        @as(f64, @floatFromInt(std.time.ns_per_s));
-    std.log.info("{} Seconds AVG in each {}", .{ avgSeconds, reportEach });
-    std.log.info("{} Seconds", .{elapsed / std.time.ns_per_s});
-
-    std.log.info("Resulting Dic", .{});
-    for (0..255) |l|
-        for (0..255) |r|
-            if (dic.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
-                std.log.info("    ({}, {}) => {}", .{ l, r, x });
-            };
-}
-
-const SortedArrayList = @import("SortedArrayList.zig").SortedArrayList;
-const AVL = @import("AVL.zig");
-const MyHashMap = @import("HashMap.zig").HashMap;
 
 const std = @import("std");
 
@@ -287,8 +123,5 @@ const Order = std.math.Order;
 const File = std.fs.File;
 const Timer = std.time.Timer;
 const io = std.io;
+const math = std.math;
 const assert = std.debug.assert;
-
-test "Main" {
-    _ = @import("HashMap.zig");
-}
