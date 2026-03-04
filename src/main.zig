@@ -3,15 +3,11 @@ pub fn main() !void {
     const allocGpa = gpa.allocator();
     defer _ = gpa.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(allocGpa);
-    const alloc = arena.allocator();
-    defer arena.deinit();
-
-    try juicyMain(alloc);
+    try juicyMain(allocGpa);
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "enwik9.bin");
+    const pathAbs = try std.fs.realpathAlloc(alloc, "./wikipediaExample.txt");
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
@@ -22,10 +18,18 @@ fn juicyMain(alloc: Allocator) !void {
 
 fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
     const Bpe = BPE(u16);
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    const arenaAlloc = arena.allocator();
 
     var bpe = try Bpe.init(alloc, file);
     try bpe.populate(alloc);
-    try bpe.print();
+    while (bpe.searchMaxPair()) |toSwap| {
+        const newItem = bpe.reserveItem();
+        try bpe.iterate(alloc, toSwap, newItem);
+        if (bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
+
+        try bpe.print();
+    }
 }
 
 pub fn BPE(T: type) type {
@@ -66,13 +70,21 @@ pub fn BPE(T: type) type {
             }
         };
 
-        d: std.HashMapUnmanaged(Pair, u32, Pair.Context, 80) = .{},
+        const PairCounting = std.HashMapUnmanaged(Pair, u32, Pair.Context, 50);
+        const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
+        const Dic = Trie(T);
+
+        count: PairCounting = .{},
+        dic: *Dic,
+        revDic: RevDic = .{},
         file: std.fs.File,
+        newItem: T = math.maxInt(u8) + 1,
 
         pub fn init(alloc: Allocator, file: std.fs.File) Allocator.Error!Self {
             std.log.info("Intializing the BPE", .{});
-            var self = Self{ .file = file };
-            try self.d.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
+            var self = Self{ .file = file, .dic = try .init(alloc) };
+            try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
+            try self.revDic.ensureTotalCapacity(alloc, math.maxInt(u16));
 
             return self;
         }
@@ -88,13 +100,131 @@ pub fn BPE(T: type) type {
                 const toInsert = Pair.init(before, r);
                 defer before = toInsert.r;
 
-                if (self.d.getPtr(toInsert)) |value|
+                if (self.count.getPtr(toInsert)) |value|
                     value.* += 1
                 else
-                    try self.d.put(alloc, toInsert, 1);
+                    try self.count.put(alloc, toInsert, 1);
             }
 
-            std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.d.count(), (try self.file.getEndPos()) - 1 });
+            std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.count.count(), (try self.file.getEndPos()) - 1 });
+        }
+
+        pub fn searchMaxPair(self: *Self) ?Pair {
+            if (self.count.count() == 0) return null;
+            var it = self.count.iterator();
+
+            const first = it.next().?;
+            var max: struct { Pair, u32 } = .{ first.key_ptr.*, first.value_ptr.* };
+
+            while (it.next()) |entry| {
+                if (max.@"1" < entry.value_ptr.*) max = .{ entry.key_ptr.*, entry.value_ptr.* };
+            }
+
+            return if (max.@"1" > 1) max.@"0" else null;
+        }
+
+        pub fn reserveItem(self: *Self) T {
+            const ret = self.newItem;
+            self.newItem += 1;
+            return ret;
+        }
+
+        pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
+            std.log.info("Adding to dic new char for domain {x}", .{self.newItem});
+
+            const current = try insertBasicDomian(arenaAllocator, self.dic, self.revDic, pair);
+            current.setVaue(newItem);
+
+            try self.revDic.put(alloc, newItem, pair);
+
+            return self.newItem == math.maxInt(T);
+        }
+
+        fn insertBasicDomian(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair) !*Dic {
+            var current: *Dic = trie;
+            if (pair.l <= math.maxInt(u8)) {
+                current = try current.insertChar(alloc, @intCast(pair.l));
+            } else {
+                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.l).?);
+            }
+
+            if (pair.r <= math.maxInt(u8)) {
+                current = try current.insertChar(alloc, @intCast(pair.r));
+            } else {
+                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.r).?);
+            }
+
+            return current;
+        }
+
+        pub fn iterate(self: *Self, alloc: Allocator, pairToChange: Pair, newItem: T) !void {
+            std.log.info("Logically Replacing ({x}, {x}) with {x}", .{ pairToChange.l, pairToChange.r, newItem });
+
+            const ctx: Pair.Context = .{};
+
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var readerIO = self.file.reader(&buffer);
+            const reader = &readerIO.interface;
+
+            var before: ?T = null;
+            var l: ?T = try getToken(self.dic, reader);
+            while (l) |left| {
+                const r = try getToken(self.dic, reader) orelse break;
+                const current = Pair.init(left, r);
+
+                if (ctx.eql(current, pairToChange)) {
+                    if (before) |b| {
+                        self.count.getPtr(Pair.init(b, left)).?.* -= 1;
+
+                        const toInsert = Pair.init(b, newItem);
+                        if (self.count.getPtr(toInsert)) |value|
+                            value.* += 1
+                        else
+                            try self.count.put(alloc, toInsert, 1);
+                    }
+
+                    if (self.count.getPtr(current)) |count| count.* -= 1;
+
+                    const after = try getToken(self.dic, reader);
+
+                    if (after) |a| {
+                        self.count.getPtr(Pair.init(r, a)).?.* -= 1;
+
+                        const toInsert = Pair.init(newItem, a);
+                        if (self.count.getPtr(toInsert)) |value|
+                            value.* += 1
+                        else
+                            try self.count.put(alloc, toInsert, 1);
+                    }
+
+                    before = newItem;
+                    l = after;
+                } else {
+                    before = left;
+                    l = r;
+                }
+            }
+
+            // WARN: Printing the counting the quantity of pairs is a little more dificult
+            std.log.info("Resulting dic with {} unique pairs", .{self.count.count()});
+        }
+
+        fn getToken(dic: *Dic, r: *io.Reader) !?T {
+            const first = r.takeByte() catch |err| switch (err) {
+                error.EndOfStream => return null,
+                else => return @errorCast(err),
+            };
+
+            var right = dic.getChar(first) orelse return first;
+
+            while (r.peekByte() catch return right.getValue() orelse first) |peeked| {
+                const next = right.getChar(peeked) orelse break;
+                assert(next.getValue() != null);
+                _ = r.takeByte();
+                right = next;
+            }
+
+            return right.getValue() orelse first;
         }
 
         pub fn print(self: *const Self) !void {
@@ -109,12 +239,18 @@ pub fn BPE(T: type) type {
             _ = try w.write("Resulting Dic:\n");
             for (0..255) |l|
                 for (0..255) |r|
-                    if (self.d.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
-                        try w.print("\t({}, {}) => {}\n", .{ l, r, x });
+                    if (self.count.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
+                        try w.print("\t({x}, {x}) => {}\n", .{ l, r, x });
                     };
         }
     };
 }
+
+test {
+    _ = @import("Trie.zig");
+}
+
+const Trie = @import("Trie.zig").Trie;
 
 const std = @import("std");
 
