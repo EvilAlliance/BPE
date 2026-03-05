@@ -18,7 +18,7 @@ pub fn Trie(V: type) type {
         // Initialzation
         pub fn init(alloc: Allocator) !*Self {
             const self = try alloc.create(Self);
-            self.* = .{ .split = .{ .value = undefined } };
+            self.* = .{ .split = .{ .value = null } };
             return self;
         }
 
@@ -144,7 +144,7 @@ pub fn Trie(V: type) type {
 
             const dividePrefixes = child1.split.possiblePrefixes;
             const divideChilds = child1.split.child;
-            child1.* = .{ .split = .{ .value = undefined } };
+            child1.* = .{ .split = .{ .value = null } };
 
             const min = if (splitIndex == 0) 0 else getPrefix(b.possiblePrefixes, splitIndex - 1);
             const max = getPrefix(b.possiblePrefixes, splitIndex);
@@ -208,12 +208,52 @@ pub fn Trie(V: type) type {
 
                     const child = b.child[splitBelong];
 
-                    return try child.getChar(prefix);
+                    return child.getChar(prefix);
                 },
                 .split => |*s| {
                     if (hasPrefix(s.possiblePrefixes, prefix)) return s.child[countPrefixBefore(s.possiblePrefixes, prefix)];
 
                     return null;
+                },
+            }
+        }
+
+        pub fn prettyPrint(self: *Self, w: *std.io.Writer) !void {
+            try self.prettyPrintIndent(w, 0);
+        }
+
+        fn prettyPrintIndent(self: *Self, w: *std.io.Writer, indent: usize) !void {
+            const spaces = "  " ** 20;
+            const indentStr = spaces[0..@min(indent * 2, spaces.len)];
+
+            switch (self.*) {
+                .bridge => |b| {
+                    try w.print("{s}Bridge (value: {?x})\n", .{ indentStr, b.value });
+
+                    var possiblePrefixes = b.possiblePrefixes;
+                    var i: usize = 0;
+                    while (possiblePrefixes != 0) : (i += 1) {
+                        const prefix = firstPrefix(possiblePrefixes);
+                        try w.print("{s}  [{x:0>2}] ->\n", .{ indentStr, prefix });
+                        try b.child[i].prettyPrintIndent(w, indent + 2);
+                        possiblePrefixes &= possiblePrefixes - 1;
+                    }
+                },
+                .split => |s| {
+                    try w.print("{s}Split (value: {?x})\n", .{ indentStr, s.value });
+
+                    var possiblePrefixes = s.possiblePrefixes;
+                    var i: usize = 0;
+                    while (possiblePrefixes != 0) : (i += 1) {
+                        const prefix = firstPrefix(possiblePrefixes);
+                        if (prefix >= 32 and prefix <= 126) {
+                            try w.print("{s}  ['{c}'] ->\n", .{ indentStr, prefix });
+                        } else {
+                            try w.print("{s}  [{x:0>2}] ->\n", .{ indentStr, prefix });
+                        }
+                        try s.child[i].prettyPrintIndent(w, indent + 2);
+                        possiblePrefixes &= possiblePrefixes - 1;
+                    }
                 },
             }
         }

@@ -1,3 +1,7 @@
+pub const std_options: std.Options = .{
+    .log_level = .debug,
+};
+
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const allocGpa = gpa.allocator();
@@ -7,7 +11,7 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "./wikipediaExample.txt");
+    const pathAbs = try std.fs.realpathAlloc(alloc, "./LoremIpsum.txt");
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
@@ -19,17 +23,27 @@ fn juicyMain(alloc: Allocator) !void {
 fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
     const Bpe = BPE(u16);
     var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
     const arenaAlloc = arena.allocator();
 
-    var bpe = try Bpe.init(alloc, file);
+    var bpe = try Bpe.init(alloc, arenaAlloc, file);
+    defer bpe.deinit(alloc, arenaAlloc);
     try bpe.populate(alloc);
+
     while (bpe.searchMaxPair()) |toSwap| {
         const newItem = bpe.reserveItem();
         try bpe.iterate(alloc, toSwap, newItem);
-        if (bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
+        if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
-        try bpe.print();
+        if (build_options.traceBpe) {
+            try bpe.printDic();
+            try bpe.printCount();
+            try bpe.printText();
+        }
     }
+
+    try bpe.printCount();
+    try bpe.printText();
 }
 
 pub fn BPE(T: type) type {
@@ -80,17 +94,30 @@ pub fn BPE(T: type) type {
         file: std.fs.File,
         newItem: T = math.maxInt(u8) + 1,
 
-        pub fn init(alloc: Allocator, file: std.fs.File) Allocator.Error!Self {
+        pub fn init(alloc: Allocator, arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
             std.log.info("Intializing the BPE", .{});
-            var self = Self{ .file = file, .dic = try .init(alloc) };
+            var self = Self{ .file = file, .dic = try .init(arenaAlloc) };
             try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
             try self.revDic.ensureTotalCapacity(alloc, math.maxInt(u16));
 
             return self;
         }
 
+        pub fn deinit(self: *Self, alloc: Allocator, arenaAlloc: Allocator) void {
+            std.log.info("Deintializing the BPE", .{});
+            self.revDic.deinit(alloc);
+            self.count.deinit(alloc);
+            self.dic.deinit(arenaAlloc);
+        }
+
         pub fn populate(self: *Self, alloc: Allocator) !void {
             std.log.info("Populating the Dic", .{});
+            var timer: ?std.time.Timer = null;
+
+            if (build_options.bench) {
+                timer = try std.time.Timer.start();
+            }
+
             var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             var readerIO = self.file.reader(&buffer);
             const reader = &readerIO.interface;
@@ -104,6 +131,10 @@ pub fn BPE(T: type) type {
                     value.* += 1
                 else
                     try self.count.put(alloc, toInsert, 1);
+            }
+
+            if (build_options.bench) {
+                std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
 
             std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.count.count(), (try self.file.getEndPos()) - 1 });
@@ -130,7 +161,7 @@ pub fn BPE(T: type) type {
         }
 
         pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
-            std.log.info("Adding to dic new char for domain {x}", .{self.newItem});
+            std.log.info("Adding to dic new char for domain {x}", .{newItem});
 
             const current = try insertBasicDomian(arenaAllocator, self.dic, self.revDic, pair);
             current.setVaue(newItem);
@@ -160,6 +191,12 @@ pub fn BPE(T: type) type {
         pub fn iterate(self: *Self, alloc: Allocator, pairToChange: Pair, newItem: T) !void {
             std.log.info("Logically Replacing ({x}, {x}) with {x}", .{ pairToChange.l, pairToChange.r, newItem });
 
+            var timer: ?std.time.Timer = null;
+
+            if (build_options.bench) {
+                timer = try std.time.Timer.start();
+            }
+
             const ctx: Pair.Context = .{};
 
             var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
@@ -174,7 +211,8 @@ pub fn BPE(T: type) type {
 
                 if (ctx.eql(current, pairToChange)) {
                     if (before) |b| {
-                        self.count.getPtr(Pair.init(b, left)).?.* -= 1;
+                        const decrement = Pair.init(b, left);
+                        self.count.getPtr(decrement).?.* -= 1;
 
                         const toInsert = Pair.init(b, newItem);
                         if (self.count.getPtr(toInsert)) |value|
@@ -188,7 +226,8 @@ pub fn BPE(T: type) type {
                     const after = try getToken(self.dic, reader);
 
                     if (after) |a| {
-                        self.count.getPtr(Pair.init(r, a)).?.* -= 1;
+                        const decrement = Pair.init(r, a);
+                        self.count.getPtr(decrement).?.* -= 1;
 
                         const toInsert = Pair.init(newItem, a);
                         if (self.count.getPtr(toInsert)) |value|
@@ -205,29 +244,64 @@ pub fn BPE(T: type) type {
                 }
             }
 
+            if (build_options.bench) {
+                std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
+            }
+
             // WARN: Printing the counting the quantity of pairs is a little more dificult
             std.log.info("Resulting dic with {} unique pairs", .{self.count.count()});
         }
 
         fn getToken(dic: *Dic, r: *io.Reader) !?T {
-            const first = r.takeByte() catch |err| switch (err) {
-                error.EndOfStream => return null,
-                else => return @errorCast(err),
+            const first = r.takeByte() catch |err| return switch (err) {
+                io.Reader.Error.EndOfStream => null,
+                else => |e| e,
             };
 
             var right = dic.getChar(first) orelse return first;
 
-            while (r.peekByte() catch return right.getValue() orelse first) |peeked| {
+            while (r.peekByte() catch null) |peeked| {
                 const next = right.getChar(peeked) orelse break;
-                assert(next.getValue() != null);
-                _ = r.takeByte();
+                _ = try r.takeByte();
                 right = next;
+            } else {
+                return right.getValue() orelse first;
             }
 
             return right.getValue() orelse first;
         }
 
-        pub fn print(self: *const Self) !void {
+        pub fn printCount(self: *const Self) !void {
+            std.log.info("Printing Dictionay", .{});
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            const stderr = std.fs.File.stdout();
+            var writerIO = stderr.writer(&buffer);
+
+            const w = &writerIO.interface;
+            defer w.flush() catch @panic("Failed to print dic state\n");
+
+            _ = try w.write("Resulting Count:\n");
+            var it = self.count.iterator();
+            while (it.next()) |t| {
+                _ = try w.write("\t (");
+
+                if (t.key_ptr.l <= math.maxInt(u8))
+                    try w.writeByte(@intCast(t.key_ptr.l))
+                else
+                    try w.print("{x}", .{t.key_ptr.l});
+
+                _ = try w.write(", ");
+
+                if (t.key_ptr.r <= math.maxInt(u8))
+                    try w.writeByte(@intCast(t.key_ptr.r))
+                else
+                    try w.print("{x}", .{t.key_ptr.r});
+
+                try w.print(") => {}\n", .{t.value_ptr.*});
+            }
+        }
+
+        pub fn printDic(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
             var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             const stderr = std.fs.File.stdout();
@@ -237,11 +311,28 @@ pub fn BPE(T: type) type {
             defer w.flush() catch @panic("Failed to print dic state\n");
 
             _ = try w.write("Resulting Dic:\n");
-            for (0..255) |l|
-                for (0..255) |r|
-                    if (self.count.get(Pair.init(@intCast(l), @intCast(r)))) |x| {
-                        try w.print("\t({x}, {x}) => {}\n", .{ l, r, x });
-                    };
+            try self.dic.prettyPrint(w);
+        }
+
+        pub fn printText(self: *const Self) !void {
+            std.log.info("Printing Text", .{});
+            var bufferStdOut: [math.pow(usize, 2, 10)]u8 = undefined;
+            const stderr = std.fs.File.stdout();
+            var writerIO = stderr.writer(&bufferStdOut);
+
+            var bufferReader: [math.pow(usize, 2, 10)]u8 = undefined;
+            var readerIO = self.file.reader(&bufferReader);
+            const reader = &readerIO.interface;
+
+            const w = &writerIO.interface;
+            defer w.flush() catch @panic("Failed to print dic state\n");
+
+            while (try getToken(self.dic, reader)) |t| {
+                try if (t < math.maxInt(u8))
+                    w.writeByte(@intCast(t))
+                else
+                    w.print("<{x}>", .{t});
+            }
         }
     };
 }
@@ -253,6 +344,7 @@ test {
 const Trie = @import("Trie.zig").Trie;
 
 const std = @import("std");
+const build_options = @import("build_options");
 
 const Allocator = std.mem.Allocator;
 const Order = std.math.Order;

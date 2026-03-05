@@ -7,6 +7,8 @@ const std = @import("std");
 // build runner to parallelize the build automatically (and the cache system to
 // know when a step doesn't need to be re-run).
 pub fn build(b: *std.Build) void {
+    const traceBpe = b.option(bool, "traceBpe", "Print BPE dictionary and text at each stage") orelse false;
+    const bench = b.option(bool, "bench", "Prints the time it takes to do mayor steps") orelse false;
     // Standard target options allow the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -83,6 +85,11 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+
+    const options = b.addOptions();
+    options.addOption(bool, "traceBpe", traceBpe);
+    options.addOption(bool, "bench", bench);
+    exe.root_module.addOptions("build_options", options);
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
