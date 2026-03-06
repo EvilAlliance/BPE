@@ -29,6 +29,7 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
     var bpe = try Bpe.init(alloc, arenaAlloc, file);
     defer bpe.deinit(alloc, arenaAlloc);
     try bpe.populate(alloc);
+    try bpe.printCount();
 
     while (bpe.searchMaxPair()) |toSwap| {
         const newItem = bpe.reserveItem();
@@ -253,17 +254,18 @@ pub fn BPE(T: type) type {
         }
 
         fn getToken(dic: *Dic, r: *io.Reader) !?T {
-            const first = r.takeByte() catch |err| return switch (err) {
+            var first: T = r.takeByte() catch |err| return switch (err) {
                 io.Reader.Error.EndOfStream => null,
                 else => |e| e,
             };
 
-            var right = dic.getChar(first) orelse return first;
+            var right = dic.getChar(@intCast(first)) orelse return first;
 
             while (r.peekByte() catch null) |peeked| {
                 const next = right.getChar(peeked) orelse break;
                 _ = try r.takeByte();
                 right = next;
+                if (right.getValue()) |v| first = v;
             } else {
                 return right.getValue() orelse first;
             }
