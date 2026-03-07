@@ -37,7 +37,6 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
 
     while (bpe.searchMaxPair()) |toSwap| {
         const newItem = bpe.reserveItem();
-        if (newItem == 0x103) @breakpoint();
         try bpe.iterate(alloc, toSwap, newItem);
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
@@ -90,6 +89,8 @@ pub fn BPE(T: type) type {
             }
         };
 
+        const BufferLen = std.math.pow(usize, 2, 10);
+
         const PairCounting = std.HashMapUnmanaged(Pair, u32, Pair.Context, 50);
         const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
         const Dic = Trie(struct {
@@ -127,7 +128,7 @@ pub fn BPE(T: type) type {
                 timer = try std.time.Timer.start();
             }
 
-            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var buffer: [BufferLen]u8 = undefined;
             var readerIO = self.file.reader(&buffer);
             const reader = &readerIO.interface;
 
@@ -222,7 +223,7 @@ pub fn BPE(T: type) type {
 
             const ctx: Pair.Context = .{};
 
-            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var buffer: [BufferLen]u8 = undefined;
             var readerIO = self.file.reader(&buffer);
             const reader = &readerIO.interface;
 
@@ -267,6 +268,13 @@ pub fn BPE(T: type) type {
                 }
             }
 
+            assert(self.count.get(pairToChange).? == 0);
+
+            var it = self.count.iterator();
+            while (it.next()) |item| {
+                if (item.value_ptr.* == 0) _ = self.count.remove(item.key_ptr.*);
+            }
+
             if (build_options.bench) {
                 std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
@@ -283,7 +291,8 @@ pub fn BPE(T: type) type {
 
             var right = dic.getChar(@intCast(first)) orelse return first;
 
-            while (try isNextChar(dic, r, 0, right.getValue().?.min)) {
+            var nextAsToken = try isNextChar(dic, r, 0, right.getValue().?.min);
+            while (nextAsToken == null) : (nextAsToken = try isNextChar(dic, r, 0, right.getValue().?.min)) {
                 const peeked = r.peekByte() catch break;
                 const next = right.getChar(peeked) orelse break;
                 _ = try r.takeByte();
@@ -291,10 +300,15 @@ pub fn BPE(T: type) type {
                 if (right.getValue().?.value) |v| first = v;
             }
 
+            if (nextAsToken) |token| {
+                _ = token;
+            }
+
             return right.getValue().?.value orelse first;
         }
 
         fn peekByte(r: *io.Reader, n: usize) !u8 {
+            assert(n + 1 < BufferLen);
             const buf = try r.peek(n + 1);
 
             if (buf.len <= n) {
@@ -304,25 +318,29 @@ pub fn BPE(T: type) type {
             return buf[n];
         }
 
-        fn isNextChar(dic: *Dic, r: *io.Reader, depth: usize, min: T) !bool {
+        fn isNextChar(dic: *Dic, r: *io.Reader, depth: usize, min: T) !?T {
             const x = try peekByte(r, depth);
 
-            var child = dic.getChar(x) orelse return true;
+            var child = dic.getChar(x) orelse return null;
             const value = child.getValue().?;
-            if (min <= value.min) return true;
+            if (min <= value.min) return null;
 
             var newDepth = depth + 1;
+            var newMin = value.min;
 
-            while (try isNextChar(dic, r, newDepth, child.getValue().?.min)) : (newDepth += 1) {
-                child = child.getChar(try peekByte(r, newDepth)) orelse break;
+            while (newMin == child.getValue().?.min and try isNextChar(dic, r, newDepth, newMin) == null) : (newDepth += 1) {
+                assert(newDepth < BufferLen);
+                // WARN: This could break causing a bug if newDepth is bigger thant the buffer provided
+                child = child.getChar(peekByte(r, newDepth) catch break) orelse break;
+                newMin = @min(newMin, child.getValue().?.min);
             }
 
-            return child.getValue().?.value == null;
+            return if (child.getValue().?.value == null or child.getValue().?.value.? > min) null else child.getValue().?.value;
         }
 
         pub fn printCount(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
-            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var buffer: [BufferLen]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&buffer);
 
@@ -352,7 +370,7 @@ pub fn BPE(T: type) type {
 
         pub fn printDic(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
-            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
+            var buffer: [BufferLen]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&buffer);
 
@@ -365,11 +383,11 @@ pub fn BPE(T: type) type {
 
         pub fn printText(self: *const Self) !void {
             std.log.info("Printing Text", .{});
-            var bufferStdOut: [math.pow(usize, 2, 10)]u8 = undefined;
+            var bufferStdOut: [BufferLen]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&bufferStdOut);
 
-            var bufferReader: [math.pow(usize, 2, 10)]u8 = undefined;
+            var bufferReader: [BufferLen]u8 = undefined;
             var readerIO = self.file.reader(&bufferReader);
             const reader = &readerIO.interface;
 
