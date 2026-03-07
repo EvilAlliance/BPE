@@ -127,7 +127,7 @@ pub fn BPE(T: type) type {
                 timer = try std.time.Timer.start();
             }
 
-            var buffer: [math.pow(usize, 2, 20)]u8 = undefined;
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             var readerIO = self.file.reader(&buffer);
             const reader = &readerIO.interface;
 
@@ -222,7 +222,7 @@ pub fn BPE(T: type) type {
 
             const ctx: Pair.Context = .{};
 
-            var buffer: [math.pow(usize, 2, 20)]u8 = undefined;
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             var readerIO = self.file.reader(&buffer);
             const reader = &readerIO.interface;
 
@@ -322,7 +322,7 @@ pub fn BPE(T: type) type {
 
         pub fn printCount(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
-            var buffer: [math.pow(usize, 2, 20)]u8 = undefined;
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&buffer);
 
@@ -352,7 +352,7 @@ pub fn BPE(T: type) type {
 
         pub fn printDic(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
-            var buffer: [math.pow(usize, 2, 20)]u8 = undefined;
+            var buffer: [math.pow(usize, 2, 10)]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&buffer);
 
@@ -365,11 +365,11 @@ pub fn BPE(T: type) type {
 
         pub fn printText(self: *const Self) !void {
             std.log.info("Printing Text", .{});
-            var bufferStdOut: [math.pow(usize, 2, 20)]u8 = undefined;
+            var bufferStdOut: [math.pow(usize, 2, 10)]u8 = undefined;
             const stderr = std.fs.File.stdout();
             var writerIO = stderr.writer(&bufferStdOut);
 
-            var bufferReader: [math.pow(usize, 2, 20)]u8 = undefined;
+            var bufferReader: [math.pow(usize, 2, 10)]u8 = undefined;
             var readerIO = self.file.reader(&bufferReader);
             const reader = &readerIO.interface;
 
