@@ -1,0 +1,27 @@
+Expected: Lorem ipsum dolor si<103>amet, consectetur adip<100>cing<101>lit. Susp<102>d<100>se h<102>dreri<103>justo<101>lem<102>tum tr<100>tique pharetra. Susp<102>d<100>se vehicula a<103>maur<100><101>u facil<100><100>. Nunc<101>st<101>s<103>libero.
+
+Before: Lorem ipsum dolor sit amet, consectetur adip<100>cing<101>lit. Susp<102>d<100>se h<102>drerit justo<101>lem<102>tum tr<100>tique pharetra. Susp<102>d<100>se vehicula at maur<100><101>u facil<100><100>. Nunc<101>st<101>st libero.
+
+Replacing: (t,  ) => <103>
+Problem is that the space that is part of 101, was taken into acount in 103 when it should have encontered 101
+
+After: Lorem ipsum dolor si<103>amet, consectetur adip<100>cing<101>lit. Susp<102>d<100>se h<102>dreri<103>justo<101>lem<102>tum tr<100>tique pharetra. Susp<102>d<100>se vehicula a<103>maur<100><101>u facil<100><100>. Nunc<101>s<103>es<103>libero.
+
+Resulting Dic:
+Split (value: null)
+  [' '] ->
+    Split (value: null)
+      ['e'] ->
+        Split (value: 101)
+  ['e'] ->
+    Split (value: null)
+      ['n'] ->
+        Split (value: 102)
+  ['i'] ->
+    Split (value: null)
+      ['s'] ->
+        Split (value: 100)
+  ['t'] ->
+    Split (value: null)
+      [' '] ->
+        Split (value: 103)

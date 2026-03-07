@@ -228,7 +228,7 @@ pub fn Trie(V: type) type {
 
             switch (self.*) {
                 .bridge => |b| {
-                    try w.print("{s}Bridge (value: {?x})\n", .{ indentStr, b.value });
+                    try w.print("{s}Bridge (value: {?})\n", .{ indentStr, b.value });
 
                     var possiblePrefixes = b.possiblePrefixes;
                     var i: usize = 0;
@@ -240,7 +240,7 @@ pub fn Trie(V: type) type {
                     }
                 },
                 .split => |s| {
-                    try w.print("{s}Split (value: {?x})\n", .{ indentStr, s.value });
+                    try w.print("{s}Split (value: {?})\n", .{ indentStr, s.value });
 
                     var possiblePrefixes = s.possiblePrefixes;
                     var i: usize = 0;
@@ -258,7 +258,7 @@ pub fn Trie(V: type) type {
             }
         }
 
-        pub fn setVaue(self: *Self, value: V) void {
+        pub fn setValue(self: *Self, value: V) void {
             const val = switch (self.*) {
                 .split => |*s| &s.value,
                 .bridge => |*b| &b.value,
@@ -271,6 +271,13 @@ pub fn Trie(V: type) type {
             return switch (self.*) {
                 .split => |s| s.value,
                 .bridge => |b| b.value,
+            };
+        }
+
+        pub fn getPtrValue(self: *Self) *?V {
+            return &switch (self.*) {
+                .split => |*s| s.value,
+                .bridge => |*b| b.value,
             };
         }
     };
