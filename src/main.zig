@@ -106,9 +106,12 @@ pub fn BPE(T: type) type {
 
         pub fn init(alloc: Allocator, arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
             std.log.info("Intializing the BPE", .{});
-            var self = Self{ .file = file, .dic = try .init(arenaAlloc) };
-            try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
-            try self.revDic.ensureTotalCapacity(alloc, math.maxInt(u16));
+            const self = Self{ .file = file, .dic = try .init(arenaAlloc) };
+            _ = alloc;
+
+            // var self = Self{ .file = file, .dic = try .init(arenaAlloc) };
+            // try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
+            // try self.revDic.ensureTotalCapacity(alloc, math.maxInt(T));
 
             return self;
         }
@@ -158,7 +161,10 @@ pub fn BPE(T: type) type {
             var max: struct { Pair, u32 } = .{ first.key_ptr.*, first.value_ptr.* };
 
             while (it.next()) |entry| {
-                if (max.@"1" < entry.value_ptr.*) max = .{ entry.key_ptr.*, entry.value_ptr.* };
+                if (max.@"1" < entry.value_ptr.*)
+                    max = .{ entry.key_ptr.*, entry.value_ptr.* }
+                else if (max.@"1" == entry.value_ptr.* and (entry.key_ptr.l < max.@"0".l and entry.key_ptr.r < max.@"0".r))
+                    max = .{ entry.key_ptr.*, entry.value_ptr.* };
             }
 
             return if (max.@"1" > 1) max.@"0" else null;
@@ -270,11 +276,6 @@ pub fn BPE(T: type) type {
 
             assert(self.count.get(pairToChange).? == 0);
 
-            var it = self.count.iterator();
-            while (it.next()) |item| {
-                if (item.value_ptr.* == 0) _ = self.count.remove(item.key_ptr.*);
-            }
-
             if (build_options.bench) {
                 std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
@@ -284,48 +285,13 @@ pub fn BPE(T: type) type {
         }
 
         fn getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader) !?T {
-            const first: T = r.takeByte() catch |err| return switch (err) {
-                io.Reader.Error.EndOfStream => null,
-                else => |e| e,
-            };
+            const advancedOrNull = try _getToken(dic, revDic, r, 0, math.maxInt(T));
+            if (advancedOrNull == null) return null;
+            const advanced = advancedOrNull.?;
 
-            var right = dic.getChar(@intCast(first)) orelse return first;
-
-            var nextAsToken = try isNextChar(dic, revDic, r, 0, right.getValue().?.min);
-            var depth: usize = 0;
-            var last: ?struct { value: T, depth: usize } = null;
-            while (nextAsToken == null) : (nextAsToken = try isNextChar(dic, revDic, r, depth, right.getValue().?.min)) {
-                assert(depth < BufferLen);
-                const peeked = peekByte(r, depth) catch break;
-                const next = right.getChar(peeked) orelse break;
-
-                depth += 1;
-                right = next;
-
-                if (right.getValue().?.value) |v| last = .{
-                    .value = v,
-                    .depth = depth,
-                };
-            }
-
-            if (nextAsToken) |token| {
-                const depthNotNull = if (last) |l| l.depth else 0;
-                if (advanceDic(right, revDic, token, depthNotNull)) |tuple| {
-                    const advenced, const count = tuple;
-                    right = advenced;
-                    if (last) |*l| {
-                        l.depth = count;
-                        l.value = advenced.getValue().?.value.?;
-                    }
-                }
-            }
-
-            if (last) |l| {
-                _ = try r.take(l.depth);
-                return l.value;
-            } else {
-                return first;
-            }
+            assert(advanced.count > 0);
+            _ = try r.take(advanced.count);
+            return advanced.item;
         }
 
         fn advanceDic(dic: *Dic, revDic: *const RevDic, token: T, count: usize) ?struct { *Dic, usize } {
@@ -355,35 +321,52 @@ pub fn BPE(T: type) type {
             return buf[n];
         }
 
-        fn isNextChar(dic: *Dic, revDic: *const RevDic, r: *io.Reader, depth: usize, min: T) !?T {
-            const x = try peekByte(r, depth);
+        const Token = struct {
+            item: T,
+            count: usize,
+        };
 
-            var child = dic.getChar(x) orelse return null;
+        fn _getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader, depth: usize, min: T) !?Token {
+            const x = peekByte(r, depth) catch return null;
+
+            var child = dic.getChar(x) orelse return .{ .item = x, .count = depth + 1 };
             const value = child.getValue().?;
-            if (min <= value.min) return null;
+            if (min <= value.min) return .{ .item = x, .count = depth + 1 };
 
             var newDepth = depth + 1;
-            var newMin = value.min;
+            const newMin = value.min;
 
-            var nextToken = try isNextChar(dic, revDic, r, newDepth, newMin);
-            while (newMin == child.getValue().?.min and nextToken == null) {
-                assert(newDepth < BufferLen);
-                child = child.getChar(peekByte(r, newDepth) catch break) orelse break;
-                newMin = @min(newMin, child.getValue().?.min);
+            var checkPoint: Token = .{ .item = x, .count = depth + 1 };
+            blk: while (true) {
+                var nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break;
+                while (nextToken.item <= math.maxInt(u8)) : (nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break) {
+                    assert(newDepth + 1 == nextToken.count);
 
-                newDepth += 1;
-                nextToken = try isNextChar(dic, revDic, r, newDepth, newMin);
+                    const advance = child.getChar(@intCast(nextToken.item)) orelse break :blk;
+                    assert(newMin <= advance.getValue().?.min);
+                    child = advance;
+
+                    newDepth += 1;
+
+                    if (child.getValue().?.value) |v| {
+                        if (v < min) checkPoint = .{ .item = v, .count = newDepth };
+                    }
+                } else {
+                    if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
+                        assert(newDepth < t.@"1");
+                        assert(nextToken.count == t.@"1");
+
+                        child = t.@"0";
+                        newDepth = t.@"1";
+
+                        if (child.getValue().?.value) |v| {
+                            if (v < min) checkPoint = .{ .item = v, .count = newDepth } else break;
+                        }
+                    } else break;
+                }
             }
 
-            if (nextToken) |t| {
-                if (advanceDic(child, revDic, t, 0)) |tuple| child = tuple.@"0";
-            }
-
-            if (child.getValue().?.value == null or child.getValue().?.value.? > min) {
-                return null;
-            } else {
-                return child.getValue().?.value.?;
-            }
+            return checkPoint;
         }
 
         pub fn printCount(self: *const Self) !void {
