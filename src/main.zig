@@ -41,13 +41,11 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            if (newItem > 0x168) {
+            if (newItem % 0x20 == 0) {
                 try bpe.printDic();
                 try bpe.printCount();
                 try bpe.printText();
             }
-
-            if (newItem == 0x171) std.process.exit(1);
         }
     }
 
@@ -392,7 +390,9 @@ pub fn BPE(T: type) type {
 
                     newDepth += 1;
 
-                    if (child.getValue().?.value) |v| checkPoint = .{ .item = v, .count = newDepth };
+                    if (child.getValue().?.value) |v| {
+                        if (v < min) checkPoint = .{ .item = v, .count = newDepth };
+                    }
 
                     nextPeeked = peekByte(r, newDepth) catch break :blk;
                     tempChild = child.getChar(nextPeeked) orelse break :blk;
@@ -407,7 +407,7 @@ pub fn BPE(T: type) type {
                         newDepth = t.@"1";
 
                         if (child.getValue().?.value) |v| {
-                            if (v < min) checkPoint = .{ .item = v, .count = newDepth } else break;
+                            if (v < min) checkPoint = .{ .item = v, .count = newDepth };
                         }
                     } else break else break;
                 }
