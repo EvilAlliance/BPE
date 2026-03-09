@@ -41,9 +41,11 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            try bpe.printDic();
-            try bpe.printCount();
-            try bpe.printText();
+            if (newItem >= 1e1) {
+                try bpe.printDic();
+                try bpe.printCount();
+                try bpe.printText();
+            }
         }
     }
 
