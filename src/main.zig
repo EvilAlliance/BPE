@@ -11,7 +11,7 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "./LoremIpsum.txt");
+    const pathAbs = try std.fs.realpathAlloc(alloc, "./enwik9.bin");
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
@@ -87,6 +87,23 @@ pub fn BPE(T: type) type {
             pub fn init(l: T, r: T) Pair {
                 return .{ .l = l, .r = r };
             }
+
+            pub fn format(self: Pair, w: *io.Writer) !void {
+                try w.writeByte('(');
+                if (self.l <= math.maxInt(u8))
+                    try w.print("{c}", .{@as(u8, @intCast(self.l))})
+                else
+                    try w.print("{x}", .{self.l});
+
+                _ = try w.write(", ");
+
+                if (self.r <= math.maxInt(u8))
+                    try w.print("{c}", .{@as(u8, @intCast(self.r))})
+                else
+                    try w.print("{x}", .{self.r});
+
+                try w.writeByte(')');
+            }
         };
 
         const BufferLen = std.math.pow(usize, 2, 10);
@@ -96,6 +113,10 @@ pub fn BPE(T: type) type {
         const Dic = Trie(struct {
             min: T,
             value: ?T = null,
+
+            pub fn format(self: @This(), w: *io.Writer) !void {
+                try w.print("{?x}({x})", .{ self.value, self.min });
+            }
         });
 
         count: PairCounting = .{},
@@ -219,7 +240,7 @@ pub fn BPE(T: type) type {
         }
 
         pub fn iterate(self: *Self, alloc: Allocator, pairToChange: Pair, newItem: T) !void {
-            std.log.info("Logically Replacing ({x}, {x}) with {x}", .{ pairToChange.l, pairToChange.r, newItem });
+            std.log.info("Logically Replacing {f} with {x}", .{ pairToChange, newItem });
 
             var timer: ?std.time.Timer = null;
 
@@ -280,6 +301,26 @@ pub fn BPE(T: type) type {
                 std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
 
+            var tryAgain = true;
+            var buff: [20]Pair = undefined;
+            var list: std.ArrayList(Pair) = .initBuffer(&buff);
+            while (tryAgain) {
+                defer list.clearRetainingCapacity();
+                var it = self.count.iterator();
+
+                while (it.next()) |e| {
+                    if (e.value_ptr.* == 0) list.appendBounded(e.key_ptr.*) catch break;
+                } else {
+                    tryAgain = false;
+                }
+
+                for (list.items) |v| {
+                    _ = self.count.remove(v);
+                }
+            }
+
+            self.count.rehash(Pair.Context{});
+
             // WARN: Printing the counting the quantity of pairs is a little more dificult
             std.log.info("Resulting dic with {} unique pairs", .{self.count.count()});
         }
@@ -334,25 +375,27 @@ pub fn BPE(T: type) type {
             if (min <= value.min) return .{ .item = x, .count = depth + 1 };
 
             var newDepth = depth + 1;
-            const newMin = value.min;
 
-            var checkPoint: Token = .{ .item = x, .count = depth + 1 };
+            var checkPoint: Token = .{ .item = x, .count = newDepth };
+
             blk: while (true) {
+                var nextPeeked = peekByte(r, newDepth) catch break;
+                var tempChild = child.getChar(nextPeeked) orelse break;
+                var newMin = tempChild.getValue().?.min;
                 var nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break;
-                while (nextToken.item <= math.maxInt(u8)) : (nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break) {
-                    assert(newDepth + 1 == nextToken.count);
-
-                    const advance = child.getChar(@intCast(nextToken.item)) orelse break :blk;
-                    assert(newMin <= advance.getValue().?.min);
-                    child = advance;
+                while (newMin < min and nextToken.item <= math.maxInt(u8)) {
+                    child = tempChild;
 
                     newDepth += 1;
 
-                    if (child.getValue().?.value) |v| {
-                        if (v < min) checkPoint = .{ .item = v, .count = newDepth };
-                    }
+                    if (child.getValue().?.value) |v| checkPoint = .{ .item = v, .count = newDepth };
+
+                    nextPeeked = peekByte(r, newDepth) catch break :blk;
+                    tempChild = child.getChar(nextPeeked) orelse break :blk;
+                    newMin = tempChild.getValue().?.min;
+                    nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break :blk;
                 } else {
-                    if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
+                    if (newMin < min) if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
                         assert(newDepth < t.@"1");
                         assert(nextToken.count == t.@"1");
 
@@ -362,10 +405,9 @@ pub fn BPE(T: type) type {
                         if (child.getValue().?.value) |v| {
                             if (v < min) checkPoint = .{ .item = v, .count = newDepth } else break;
                         }
-                    } else break;
+                    } else break else break;
                 }
             }
-
             return checkPoint;
         }
 

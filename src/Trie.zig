@@ -228,7 +228,7 @@ pub fn Trie(V: type) type {
 
             switch (self.*) {
                 .bridge => |b| {
-                    try w.print("{s}Bridge (value: {?})\n", .{ indentStr, b.value });
+                    try w.print("{s}Bridge (value: {?f})\n", .{ indentStr, b.value });
 
                     var possiblePrefixes = b.possiblePrefixes;
                     var i: usize = 0;
@@ -240,7 +240,7 @@ pub fn Trie(V: type) type {
                     }
                 },
                 .split => |s| {
-                    try w.print("{s}Split (value: {?})\n", .{ indentStr, s.value });
+                    try w.print("{s}Split (value: {?f})\n", .{ indentStr, s.value });
 
                     var possiblePrefixes = s.possiblePrefixes;
                     var i: usize = 0;
