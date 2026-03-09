@@ -11,7 +11,7 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "./enwik9.bin");
+    const pathAbs = try std.fs.realpathAlloc(alloc, "./LoremIpsum.txt");
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
@@ -41,9 +41,13 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            try bpe.printDic();
-            try bpe.printCount();
-            try bpe.printText();
+            if (newItem > 0x168) {
+                try bpe.printDic();
+                try bpe.printCount();
+                try bpe.printText();
+            }
+
+            if (newItem == 0x171) std.process.exit(1);
         }
     }
 
