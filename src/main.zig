@@ -41,11 +41,9 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            if (newItem % 0x20 == 0) {
-                try bpe.printDic();
-                try bpe.printCount();
-                try bpe.printText();
-            }
+            try bpe.printDic();
+            try bpe.printCount();
+            try bpe.printText();
         }
     }
 
@@ -384,7 +382,8 @@ pub fn BPE(T: type) type {
                 var nextPeeked = peekByte(r, newDepth) catch break;
                 var tempChild = child.getChar(nextPeeked) orelse break;
                 var newMin = tempChild.getValue().?.min;
-                var nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break;
+                // WARN: This orelse with value will bite me in the ass some day
+                var nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break;
                 while (newMin < min and nextToken.item <= math.maxInt(u8)) {
                     child = tempChild;
 
@@ -397,7 +396,7 @@ pub fn BPE(T: type) type {
                     nextPeeked = peekByte(r, newDepth) catch break :blk;
                     tempChild = child.getChar(nextPeeked) orelse break :blk;
                     newMin = tempChild.getValue().?.min;
-                    nextToken = try _getToken(dic, revDic, r, newDepth, newMin) orelse break :blk;
+                    nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break :blk;
                 } else {
                     if (newMin < min) if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
                         assert(newDepth < t.@"1");
