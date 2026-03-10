@@ -41,11 +41,13 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            if (newItem >= 1e1) {
+            if (newItem > 0x110) {
                 try bpe.printDic();
                 try bpe.printCount();
                 try bpe.printText();
             }
+
+            if (newItem > 0x120) std.process.exit(1);
         }
     }
 
@@ -328,38 +330,52 @@ pub fn BPE(T: type) type {
         }
 
         fn getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader) !?T {
-            const advancedOrNull = try _getToken(dic, revDic, r, 0, math.maxInt(T));
-            if (advancedOrNull == null) return null;
-            const advanced = advancedOrNull.?;
+            _ = revDic;
 
-            assert(advanced.count > 0);
-            _ = try r.take(advanced.count);
-            return advanced.item;
-        }
+            var checkPoint: struct { item: T, depth: usize } = .{ .item = try peekByte(r, 0) orelse return null, .depth = 0 };
+            defer r.toss(checkPoint.depth + 1);
 
-        fn advanceDic(dic: *Dic, revDic: *const RevDic, token: T, count: usize) ?struct { *Dic, usize } {
-            const pair = revDic.get(token).?;
+            var child = dic.getChar(@intCast(checkPoint.item)) orelse return checkPoint.item;
+            var depth: usize = 1;
+            while (try peekByte(r, depth)) |peeked| : (depth += 1) {
+                child = child.getChar(peeked) orelse break;
 
-            const left, var newCount = (if (pair.l < math.maxInt(u8))
-                .{ dic.getChar(@intCast(pair.l)) orelse return null, count + 1 }
-            else
-                advanceDic(dic, revDic, pair.l, count)) orelse return null;
-
-            const right, newCount = (if (pair.r < math.maxInt(u8))
-                .{ left.getChar(@intCast(pair.r)) orelse return null, newCount + 1 }
-            else
-                advanceDic(left, revDic, pair.r, newCount)) orelse return null;
-
-            return .{ right, newCount };
-        }
-
-        fn peekByte(r: *io.Reader, n: usize) !u8 {
-            assert(n + 1 < BufferLen);
-            const buf = try r.peek(n + 1);
-
-            if (buf.len <= n) {
-                return error.EndOfStream;
+                if (child.getValue().?.value) |v| {
+                    if (v == 0x11f) @breakpoint();
+                    if (try validToken(dic, r, v, 0, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                }
             }
+
+            return checkPoint.item;
+        }
+
+        fn validToken(dic: *Dic, r: *io.Reader, value: T, startingDepth: usize, maxDepth: usize) !bool {
+            var depth: usize = startingDepth;
+
+            while (depth < maxDepth) : (depth += 1) {
+                var child = dic.getChar(try peekByte(r, depth) orelse return true) orelse continue;
+                if (child.getValue().?.min > value) continue;
+
+                var innerDepth = depth + 1;
+                while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
+                    child = child.getChar(peeked) orelse break;
+                    if (child.getValue().?.min > value) break;
+
+                    if (child.getValue().?.value) |v| {
+                        if (try validToken(dic, r, v, depth, innerDepth) and v < value and innerDepth >= maxDepth) return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        fn peekByte(r: *io.Reader, n: usize) !?u8 {
+            assert(n + 1 < BufferLen);
+            const buf = r.peek(n + 1) catch |err| switch (err) {
+                error.ReadFailed => return err,
+                error.EndOfStream => return null,
+            };
 
             return buf[n];
         }
@@ -368,53 +384,6 @@ pub fn BPE(T: type) type {
             item: T,
             count: usize,
         };
-
-        fn _getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader, depth: usize, min: T) !?Token {
-            const x = peekByte(r, depth) catch return null;
-
-            var child = dic.getChar(x) orelse return .{ .item = x, .count = depth + 1 };
-            const value = child.getValue().?;
-            if (min <= value.min) return .{ .item = x, .count = depth + 1 };
-
-            var newDepth = depth + 1;
-
-            var checkPoint: Token = .{ .item = x, .count = newDepth };
-
-            blk: while (true) {
-                var nextPeeked = peekByte(r, newDepth) catch break;
-                var tempChild = child.getChar(nextPeeked) orelse break;
-                var newMin = tempChild.getValue().?.min;
-                // WARN: This orelse with value will bite me in the ass some day
-                var nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break;
-                while (newMin < min and nextToken.item <= math.maxInt(u8)) {
-                    child = tempChild;
-
-                    newDepth += 1;
-
-                    if (child.getValue().?.value) |v| {
-                        if (v < min) checkPoint = .{ .item = v, .count = newDepth };
-                    }
-
-                    nextPeeked = peekByte(r, newDepth) catch break :blk;
-                    tempChild = child.getChar(nextPeeked) orelse break :blk;
-                    newMin = tempChild.getValue().?.min;
-                    nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break :blk;
-                } else {
-                    if (newMin < min) if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
-                        assert(newDepth < t.@"1");
-                        assert(nextToken.count == t.@"1");
-
-                        child = t.@"0";
-                        newDepth = t.@"1";
-
-                        if (child.getValue().?.value) |v| {
-                            if (v < min) checkPoint = .{ .item = v, .count = newDepth };
-                        }
-                    } else break else break;
-                }
-            }
-            return checkPoint;
-        }
 
         pub fn printCount(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
