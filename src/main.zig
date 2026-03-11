@@ -254,9 +254,9 @@ pub fn BPE(T: type) type {
             const reader = &readerIO.interface;
 
             var before: ?T = null;
-            var l: ?T = try getToken(self.dic, &self.revDic, reader);
+            var l: ?T = try getToken(self.dic, reader);
             while (l) |left| {
-                const r = try getToken(self.dic, &self.revDic, reader) orelse break;
+                const r = try getToken(self.dic, reader) orelse break;
                 const current = Pair.init(left, r);
 
                 if (ctx.eql(current, pairToChange)) {
@@ -273,7 +273,7 @@ pub fn BPE(T: type) type {
 
                     if (self.count.getPtr(current)) |count| count.* -= 1;
 
-                    const after = try getToken(self.dic, &self.revDic, reader);
+                    const after = try getToken(self.dic, reader);
 
                     if (after) |a| {
                         const decrement = Pair.init(r, a);
@@ -324,9 +324,7 @@ pub fn BPE(T: type) type {
             std.log.info("Resulting dic with {} unique pairs", .{self.count.count()});
         }
 
-        fn getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader) !?T {
-            _ = revDic;
-
+        fn getToken(dic: *Dic, r: *io.Reader) !?T {
             var checkPoint: struct { item: T, depth: usize } = .{ .item = try peekByte(r, 0) orelse return null, .depth = 0 };
             defer r.toss(checkPoint.depth + 1);
 
@@ -335,35 +333,59 @@ pub fn BPE(T: type) type {
             while (try peekByte(r, depth)) |peeked| : (depth += 1) {
                 child = child.getChar(peeked) orelse break;
 
-                if (child.getValue().?.value) |v| {
-                    if (try validToken(dic, r, v, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                const value = child.getValue().?;
+                if (value.value) |v| {
+                    if (try validToken(dic, r, v, value.parent, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
                 }
             }
 
             return checkPoint.item;
         }
 
-        fn validToken(dic: *Dic, r: *io.Reader, value: T, startingDepth: usize, maxDepth: usize) !bool {
-            var depth: usize = startingDepth;
+        fn validToken(dic: *Dic, r: *io.Reader, value: T, parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
+            _ = parent;
+            const belogsToAnotherToken: bool = blk: {
+                var child = dic.getChar(try peekByte(r, startingDepth) orelse unreachable) orelse break :blk false;
+                var checkPointDepth = startingDepth + 1;
+                var depth = checkPointDepth;
 
-            while (depth < maxDepth) : (depth += 1) {
-                var child = dic.getChar(try peekByte(r, depth) orelse return true) orelse continue;
-                if (child.getValue().?.min >= value) continue;
-
-                var innerDepth = depth + 1;
-                while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
+                while (try peekByte(r, depth)) |peeked| : (depth += 1) {
                     child = child.getChar(peeked) orelse break;
-                    if (child.getValue().?.min >= value) break;
 
-                    if (child.getValue().?.value) |v| {
-                        if (v < value and innerDepth >= maxDepth and try validToken(dic, r, v, depth + 1, innerDepth + 1)) {
-                            return false;
+                    const childValue = child.getValue().?;
+                    if (childValue.value) |v| {
+                        if (v < value and depth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, depth + 1)) break :blk true;
+                        checkPointDepth = depth;
+                    }
+                }
+
+                break :blk false;
+            };
+
+            const tokenAvailable: bool = blk: {
+                var depth: usize = startingDepth;
+
+                while (depth < maxDepth) : (depth += 1) {
+                    var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
+                    if (child.getValue().?.min >= value) continue;
+
+                    var innerDepth = depth + 1;
+                    while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
+                        child = child.getChar(peeked) orelse break;
+                        if (child.getValue().?.min >= value) break;
+
+                        const childValue = child.getValue().?;
+                        if (childValue.value) |v| {
+                            if (v < value and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
+                                break :blk false;
+                            }
                         }
                     }
                 }
-            }
+                break :blk true;
+            };
 
-            return true;
+            return tokenAvailable and !belogsToAnotherToken;
         }
 
         fn peekByte(r: *io.Reader, n: usize) !?u8 {
@@ -384,8 +406,8 @@ pub fn BPE(T: type) type {
             defer actual.deinit(alloc);
             try actual.ensureTotalCapacity(alloc, self.count.count());
 
-            var before: T = try getToken(self.dic, &self.revDic, reader) orelse unreachable;
-            while (try getToken(self.dic, &self.revDic, reader)) |r| {
+            var before: T = try getToken(self.dic, reader) orelse unreachable;
+            while (try getToken(self.dic, reader)) |r| {
                 const toInsert = Pair.init(before, r);
                 defer before = toInsert.r;
 
@@ -479,7 +501,7 @@ pub fn BPE(T: type) type {
             const w = &writerIO.interface;
             defer w.flush() catch @panic("Failed to print dic state\n");
 
-            while (try getToken(self.dic, &self.revDic, reader)) |t| {
+            while (try getToken(self.dic, reader)) |t| {
                 try if (t < math.maxInt(u8))
                     w.writeByte(@intCast(t))
                 else
