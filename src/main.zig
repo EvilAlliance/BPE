@@ -360,7 +360,7 @@ pub fn BPE(T: type) type {
                     }
                 }
 
-                break :blk checkPointDepth > depth;
+                break :blk checkPointDepth > maxDepth;
             };
 
             const tokenAvailable: bool = blk: {
