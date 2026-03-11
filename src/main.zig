@@ -26,7 +26,7 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
     defer arena.deinit();
     const arenaAlloc = arena.allocator();
 
-    var bpe = try Bpe.init(alloc, arenaAlloc, file);
+    var bpe = try Bpe.init(arenaAlloc, file);
     defer bpe.deinit(alloc, arenaAlloc);
     try bpe.populate(alloc);
 
@@ -41,14 +41,12 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
         if (build_options.trace) {
-            if (newItem > 0x110) {
-                try bpe.printDic();
-                try bpe.printCount();
-                try bpe.printText();
-            }
-
-            if (newItem > 0x120) std.process.exit(1);
+            try bpe.printDic();
+            try bpe.printCount();
+            try bpe.printText();
         }
+
+        if (build_options.debug) try bpe.verifyCount(alloc);
     }
 
     try bpe.printCount();
@@ -116,10 +114,11 @@ pub fn BPE(T: type) type {
         const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
         const Dic = Trie(struct {
             min: T,
+            parent: ?T = null,
             value: ?T = null,
 
             pub fn format(self: @This(), w: *io.Writer) !void {
-                try w.print("{?x}({x})", .{ self.value, self.min });
+                try w.print("{?x}(min: {x}, parent: {?x})", .{ self.value, self.min, self.parent });
             }
         });
 
@@ -129,15 +128,9 @@ pub fn BPE(T: type) type {
         file: std.fs.File,
         newItem: T = math.maxInt(u8) + 1,
 
-        pub fn init(alloc: Allocator, arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
+        pub fn init(arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
             std.log.info("Intializing the BPE", .{});
             const self = Self{ .file = file, .dic = try .init(arenaAlloc) };
-            _ = alloc;
-
-            // var self = Self{ .file = file, .dic = try .init(arenaAlloc) };
-            // try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
-            // try self.revDic.ensureTotalCapacity(alloc, math.maxInt(T));
-
             return self;
         }
 
@@ -218,6 +211,7 @@ pub fn BPE(T: type) type {
                 current = try current.insertChar(alloc, @intCast(pair.l));
             } else {
                 current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
+                current.getPtrValue().*.?.parent = pair.l;
             }
 
             const left = current.getPtrValue();
@@ -231,6 +225,7 @@ pub fn BPE(T: type) type {
                 current = try current.insertChar(alloc, @intCast(pair.r));
             } else {
                 current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
+                current.getPtrValue().*.?.parent = pair.r;
             }
 
             const right = current.getPtrValue();
@@ -341,8 +336,7 @@ pub fn BPE(T: type) type {
                 child = child.getChar(peeked) orelse break;
 
                 if (child.getValue().?.value) |v| {
-                    if (v == 0x11f) @breakpoint();
-                    if (try validToken(dic, r, v, 0, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                    if (try validToken(dic, r, v, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
                 }
             }
 
@@ -354,15 +348,17 @@ pub fn BPE(T: type) type {
 
             while (depth < maxDepth) : (depth += 1) {
                 var child = dic.getChar(try peekByte(r, depth) orelse return true) orelse continue;
-                if (child.getValue().?.min > value) continue;
+                if (child.getValue().?.min >= value) continue;
 
                 var innerDepth = depth + 1;
                 while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
                     child = child.getChar(peeked) orelse break;
-                    if (child.getValue().?.min > value) break;
+                    if (child.getValue().?.min >= value) break;
 
                     if (child.getValue().?.value) |v| {
-                        if (try validToken(dic, r, v, depth, innerDepth) and v < value and innerDepth >= maxDepth) return false;
+                        if (v < value and innerDepth >= maxDepth and try validToken(dic, r, v, depth + 1, innerDepth + 1)) {
+                            return false;
+                        }
                     }
                 }
             }
@@ -380,10 +376,52 @@ pub fn BPE(T: type) type {
             return buf[n];
         }
 
-        const Token = struct {
-            item: T,
-            count: usize,
-        };
+        pub fn verifyCount(self: *Self, alloc: Allocator) !void {
+            var buffer: [BufferLen]u8 = undefined;
+            var readerIO = self.file.reader(&buffer);
+            const reader = &readerIO.interface;
+            var actual = PairCounting.empty;
+            defer actual.deinit(alloc);
+            try actual.ensureTotalCapacity(alloc, self.count.count());
+
+            var before: T = try getToken(self.dic, &self.revDic, reader) orelse unreachable;
+            while (try getToken(self.dic, &self.revDic, reader)) |r| {
+                const toInsert = Pair.init(before, r);
+                defer before = toInsert.r;
+
+                if (actual.getPtr(toInsert)) |value|
+                    value.* += 1
+                else
+                    try actual.put(alloc, toInsert, 1);
+            }
+
+            var allMatch = true;
+
+            var selfIt = self.count.iterator();
+            while (selfIt.next()) |entry| {
+                const expectedCount = entry.value_ptr.*;
+                if (actual.get(entry.key_ptr.*)) |actualCount| {
+                    if (expectedCount != actualCount) {
+                        std.log.err("Mismatch for pair {f}: expected {}, got {}", .{ entry.key_ptr.*, expectedCount, actualCount });
+                        allMatch = false;
+                    }
+                } else {
+                    std.log.err("Pair {f} expected with count {} but not found in actual", .{ entry.key_ptr.*, expectedCount });
+                    allMatch = false;
+                }
+            }
+
+            var actualIt = actual.iterator();
+            while (actualIt.next()) |entry| {
+                if (!self.count.contains(entry.key_ptr.*)) {
+                    std.log.err("Pair {f} found in actual with count {} but not in expected", .{ entry.key_ptr.*, entry.value_ptr.* });
+                    allMatch = false;
+                }
+            }
+
+            if (!allMatch) std.debug.panic("Failed", .{});
+            std.log.info("Count verification passed: {} unique pairs match", .{self.count.count()});
+        }
 
         pub fn printCount(self: *const Self) !void {
             std.log.info("Printing Dictionay", .{});
