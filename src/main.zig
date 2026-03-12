@@ -211,7 +211,9 @@ pub fn BPE(T: type) type {
                 current = try current.insertChar(alloc, @intCast(pair.l));
             } else {
                 current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
-                current.getPtrValue().*.?.parent = pair.l;
+                // NOTE: At the moment this is not neccessary
+                // const value = current.getPtrValue();
+                // if (value.*.?.parent == null) value.*.?.parent = pair.l;
             }
 
             const left = current.getPtrValue();
@@ -225,7 +227,8 @@ pub fn BPE(T: type) type {
                 current = try current.insertChar(alloc, @intCast(pair.r));
             } else {
                 current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
-                current.getPtrValue().*.?.parent = pair.r;
+                const value = current.getPtrValue();
+                if (value.*.?.parent == null) value.*.?.parent = pair.r;
             }
 
             const right = current.getPtrValue();
@@ -356,7 +359,7 @@ pub fn BPE(T: type) type {
                     if (childValue.min >= value) break;
                     if (childValue.value) |v| {
                         if (v < value and depth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, depth + 1)) break :blk depth < maxDepth;
-                        checkPointDepth = depth;
+                        if (v < value) checkPointDepth = depth;
                     }
                 }
 
