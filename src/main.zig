@@ -342,7 +342,8 @@ pub fn BPE(T: type) type {
             return checkPoint.item;
         }
 
-        fn validToken(dic: *Dic, r: *io.Reader, value: T, parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
+        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
+            var parent = _parent;
             const belogsToAnotherToken: bool = blk: {
                 var child = dic.getChar(try peekByte(r, startingDepth) orelse unreachable) orelse break :blk false;
                 var checkPointDepth = startingDepth;
@@ -376,6 +377,7 @@ pub fn BPE(T: type) type {
 
                         const childValue = child.getValue().?;
                         if (childValue.value) |v| {
+                            if (parent == null or v == parent) parent = childValue.parent orelse v;
                             if (v < parent orelse value and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
                                 break :blk false;
                             }
