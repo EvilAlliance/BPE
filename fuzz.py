@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 # ---- CONFIG ----
-BPE_CMD = ["zig", "build", "run", "-Ddebug"]
+BPE_CMD = ["zig", "build", "run", "-Ddebug", "--", "test.txt"]
 FILE_NAME = "test.txt"
 
 VOWELS = "aeiou"

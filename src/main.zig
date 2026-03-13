@@ -11,7 +11,16 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "./LoremIpsum.txt");
+    var args = try std.process.argsWithAllocator(alloc);
+    defer args.deinit();
+
+    const exeName = args.next() orelse "BPE";
+    const inputPath = args.next() orelse {
+        std.log.err("Usage: {s} <file>", .{exeName});
+        return error.InvalidArguments;
+    };
+
+    const pathAbs = try std.fs.realpathAlloc(alloc, inputPath);
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
