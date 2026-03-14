@@ -206,7 +206,7 @@ pub fn BPE(T: type) type {
         pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
             std.log.info("Adding to dic new char for domain {x}", .{newItem});
 
-            const current = try insertBasicDomamin(arenaAllocator, self.dic, self.revDic, pair, newItem);
+            const current = try insertBasicDomamain(arenaAllocator, self.dic, self.revDic, pair, newItem);
             current.getPtrValue().*.?.value = newItem;
 
             try self.revDic.put(alloc, newItem, pair);
@@ -214,15 +214,14 @@ pub fn BPE(T: type) type {
             return self.newItem == math.maxInt(T);
         }
 
-        fn insertBasicDomamin(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
+        fn insertBasicDomamain(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
             var current: *Dic = trie;
             if (pair.l <= math.maxInt(u8)) {
                 current = try current.insertChar(alloc, @intCast(pair.l));
             } else {
-                // NOTE: At the moment this is not neccessary
-                // const value = current.getPtrValue();
-                // if (value.*.?.parent == null) value.*.?.parent = pair.l;
-                current = try insertBasicDomamin(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
+                current = try insertBasicDomamain(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
+                const value = current.getPtrValue();
+                if (value.*.?.parent == null) value.*.?.parent = pair.l;
             }
 
             const left = current.getPtrValue();
@@ -235,7 +234,7 @@ pub fn BPE(T: type) type {
             if (pair.r <= math.maxInt(u8)) {
                 current = try current.insertChar(alloc, @intCast(pair.r));
             } else {
-                current = try insertBasicDomamin(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
+                current = try insertBasicDomamain(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
                 const value = current.getPtrValue();
                 // TODO: Multple value could be here check
                 if (value.*.?.parent == null) value.*.?.parent = pair.r;
@@ -356,7 +355,6 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
-            var parent = _parent;
             const belogsToAnotherToken: bool = blk: {
                 var child = dic.getChar(try peekByte(r, startingDepth) orelse unreachable) orelse break :blk false;
                 var checkPointDepth = startingDepth;
@@ -378,10 +376,14 @@ pub fn BPE(T: type) type {
                 break :blk checkPointDepth >= maxDepth;
             };
 
+            // if (value == 0x18e) @breakpoint();
+
             const tokenAvailable: bool = blk: {
                 var depth: usize = startingDepth;
 
                 while (depth < maxDepth) : (depth += 1) {
+                    var parent = _parent;
+
                     var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
                     if (child.getValue().?.min >= value) continue;
 
@@ -392,10 +394,10 @@ pub fn BPE(T: type) type {
 
                         const childValue = child.getValue().?;
                         if (childValue.value) |v| {
-                            if ((parent == null and innerDepth == maxDepth - 1) or v == parent) parent = childValue.parent orelse v;
                             if (v < parent orelse value and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
                                 break :blk false;
                             }
+                            if (childValue.parent != null and childValue.parent.? < _parent orelse value) parent = childValue.parent;
                         }
                     }
                 }
