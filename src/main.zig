@@ -206,7 +206,7 @@ pub fn BPE(T: type) type {
         pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
             std.log.info("Adding to dic new char for domain {x}", .{newItem});
 
-            const current = try insertBasicDomian(arenaAllocator, self.dic, self.revDic, pair, newItem);
+            const current = try insertBasicDomamin(arenaAllocator, self.dic, self.revDic, pair, newItem);
             current.getPtrValue().*.?.value = newItem;
 
             try self.revDic.put(alloc, newItem, pair);
@@ -214,15 +214,15 @@ pub fn BPE(T: type) type {
             return self.newItem == math.maxInt(T);
         }
 
-        fn insertBasicDomian(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
+        fn insertBasicDomamin(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
             var current: *Dic = trie;
             if (pair.l <= math.maxInt(u8)) {
                 current = try current.insertChar(alloc, @intCast(pair.l));
             } else {
-                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
                 // NOTE: At the moment this is not neccessary
                 // const value = current.getPtrValue();
                 // if (value.*.?.parent == null) value.*.?.parent = pair.l;
+                current = try insertBasicDomamin(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
             }
 
             const left = current.getPtrValue();
@@ -235,8 +235,9 @@ pub fn BPE(T: type) type {
             if (pair.r <= math.maxInt(u8)) {
                 current = try current.insertChar(alloc, @intCast(pair.r));
             } else {
-                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
+                current = try insertBasicDomamin(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
                 const value = current.getPtrValue();
+                // TODO: Multple value could be here check
                 if (value.*.?.parent == null) value.*.?.parent = pair.r;
             }
 
