@@ -206,49 +206,101 @@ pub fn BPE(T: type) type {
         pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
             std.log.info("Adding to dic new char for domain {x}", .{newItem});
 
-            const current = try insertBasicDomain(arenaAllocator, self.dic, self.revDic, pair, newItem);
-            current.getPtrValue().*.?.value = newItem;
+            var buffer: [BufferLen]u8 = undefined;
+            var list = std.ArrayList(u8).initBuffer(&buffer);
+
+            var current = self.dic;
+            itemToSlice(&self.revDic, &list, pair.l);
+
+            for (list.items) |item| {
+                current = try current.insertChar(arenaAllocator, item);
+                if (current.getPtrValue()) |v| v.min = @min(newItem, v.min) else current.setValue(.{ .min = newItem });
+            }
+
+            list.clearRetainingCapacity();
+
+            itemToSlice(&self.revDic, &list, pair.r);
+
+            for (list.items) |item| {
+                current = try current.insertChar(arenaAllocator, item);
+                if (current.getPtrValue()) |v| v.min = @min(newItem, v.min) else current.setValue(.{ .min = newItem });
+            }
+
+            const rightValue = current.getPtrValue().?;
+            assert(rightValue.parent == null or rightValue.parent.? == pair.r);
+            if (pair.r >= math.maxInt(u8) and rightValue.parent == null) current.getPtrValue().?.*.parent = pair.r;
 
             try self.revDic.put(alloc, newItem, pair);
+            current.getPtrValue().?.value = newItem;
 
             return self.newItem == math.maxInt(T);
         }
 
-        fn insertBasicDomain(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
-            var current: *Dic = trie;
-            if (pair.l <= math.maxInt(u8)) {
-                current = try current.insertChar(alloc, @intCast(pair.l));
+        fn itemToSlice(revDic: *const RevDic, list: *std.ArrayList(u8), item: T) void {
+            if (item <= math.maxInt(u8)) {
+                list.appendAssumeCapacity(@intCast(item));
             } else {
-                current = try insertBasicDomain(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
-                const value = current.getPtrValue();
-                if (value.*.?.parent == null) value.*.?.parent = pair.l;
+                const pair = revDic.get(item).?;
+                itemToSlice(revDic, list, pair.l);
+                itemToSlice(revDic, list, pair.r);
             }
+        }
 
-            const left = current.getPtrValue();
-            if (left.*) |*v| {
-                v.min = @min(tryNewValue, v.min);
-            } else {
-                left.* = .{ .min = tryNewValue };
-            }
-
-            if (pair.r <= math.maxInt(u8)) {
-                current = try current.insertChar(alloc, @intCast(pair.r));
-            } else {
-                current = try insertBasicDomain(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
-                const value = current.getPtrValue();
-                // TODO: Multple value could be here check
-                if (value.*.?.parent == null) value.*.?.parent = pair.r;
-            }
-
-            const right = current.getPtrValue();
-            if (right.*) |*v| {
-                v.min = @min(tryNewValue, v.min);
-            } else {
-                right.* = .{ .min = tryNewValue };
+        fn getDic(dic: *Dic, slice: []u8) *Dic {
+            var current = dic;
+            for (slice) |item| {
+                current = current.getChar(item).?;
             }
 
             return current;
         }
+
+        // pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
+        //     std.log.info("Adding to dic new char for domain {x}", .{newItem});
+        //
+        //     const current = try insertBasicDomain(arenaAllocator, self.dic, self.revDic, pair, newItem);
+        //     current.getPtrValue().*.?.value = newItem;
+        //
+        //     try self.revDic.put(alloc, newItem, pair);
+        //
+        //     return self.newItem == math.maxInt(T);
+        // }
+        //
+        // fn insertBasicDomain(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
+        //     var current: *Dic = trie;
+        //     if (pair.l <= math.maxInt(u8)) {
+        //         current = try current.insertChar(alloc, @intCast(pair.l));
+        //     } else {
+        //         current = try insertBasicDomain(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
+        //         const value = current.getPtrValue();
+        //         if (value.*.?.parent == null) value.*.?.parent = pair.l;
+        //     }
+        //
+        //     const left = current.getPtrValue();
+        //     if (left.*) |*v| {
+        //         v.min = @min(tryNewValue, v.min);
+        //     } else {
+        //         left.* = .{ .min = tryNewValue };
+        //     }
+        //
+        //     if (pair.r <= math.maxInt(u8)) {
+        //         current = try current.insertChar(alloc, @intCast(pair.r));
+        //     } else {
+        //         current = try insertBasicDomain(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
+        //         const value = current.getPtrValue();
+        //         // TODO: Multple value could be here check
+        //         if (value.*.?.parent == null) value.*.?.parent = pair.r;
+        //     }
+        //
+        //     const right = current.getPtrValue();
+        //     if (right.*) |*v| {
+        //         v.min = @min(tryNewValue, v.min);
+        //     } else {
+        //         right.* = .{ .min = tryNewValue };
+        //     }
+        //
+        //     return current;
+        // }
 
         pub fn iterate(self: *Self, alloc: Allocator, pairToChange: Pair, newItem: T) !void {
             std.log.info("Logically Replacing {f} with {x}", .{ pairToChange, newItem });
@@ -355,6 +407,7 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
+            // Checks if the slice selected does not belong another token
             const belogsToAnotherToken: bool = blk: {
                 var child = dic.getChar(try peekByte(r, startingDepth) orelse unreachable) orelse break :blk false;
                 var checkPointDepth = startingDepth;
@@ -364,7 +417,7 @@ pub fn BPE(T: type) type {
                     child = child.getChar(peeked) orelse break;
 
                     const childValue = child.getValue().?;
-                    if (childValue.min >= value) break;
+                    if (childValue.min > value) break;
                     if (childValue.value) |v| {
                         if (v < value and depth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, depth + 1)) {
                             if (depth < maxDepth) return true else continue;
@@ -376,26 +429,30 @@ pub fn BPE(T: type) type {
                 break :blk checkPointDepth >= maxDepth;
             };
 
+            // Checks if the slice selected does not steal the selected slice
             const tokenAvailable: bool = blk: {
                 var depth: usize = startingDepth;
+                var parent = _parent orelse value;
+                var lastValue = value;
 
                 while (depth < maxDepth) : (depth += 1) {
-                    var parent = _parent;
-
                     var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
-                    if (child.getValue().?.min >= value) continue;
+                    if (child.getValue().?.min > parent) continue;
 
                     var innerDepth = depth + 1;
                     while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
                         child = child.getChar(peeked) orelse break;
-                        if (child.getValue().?.min >= value) break;
-
                         const childValue = child.getValue().?;
+
+                        if (childValue.min > parent) break;
                         if (childValue.value) |v| {
-                            if (v < parent orelse value and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
+                            lastValue = v;
+
+                            if (innerDepth == maxDepth - 1) parent = childValue.parent orelse lastValue;
+
+                            if (v < parent and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
                                 break :blk false;
                             }
-                            if (childValue.parent != null and childValue.parent.? < _parent orelse value) parent = childValue.parent;
                         }
                     }
                 }
