@@ -368,7 +368,7 @@ pub fn BPE(T: type) type {
                     const childValue = child.getValue().?;
                     if (childValue.min > limit) break;
                     if (childValue.value) |v| {
-                        if (innerDepth == maxDepth - 1) toChange = @min(v, toChange);
+                        if (innerDepth == maxDepth - 1) toChange = childValue.parent orelse toChange;
                         if (v < limit) {
                             if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, innerDepth + 1)) continue;
                             checkPointDepth = innerDepth;
