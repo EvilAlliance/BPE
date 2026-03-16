@@ -59,7 +59,9 @@ def main():
             text = gen_text(n)
             Path(FILE_NAME).write_text(text)
 
-            proc = subprocess.run(BPE_CMD)
+            proc = subprocess.run(BPE_CMD,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL)
 
             if proc.returncode != 0:
                 print("BPE FAILED!")
