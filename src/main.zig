@@ -351,7 +351,8 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
-            var parent = _parent orelse value;
+            var toChange = _parent orelse value;
+            var limit = value;
             var depth: usize = startingDepth;
 
             while (depth < maxDepth) : (depth += 1) {
@@ -365,12 +366,10 @@ pub fn BPE(T: type) type {
                     child = child.getChar(peeked) orelse break;
 
                     const childValue = child.getValue().?;
-                    if (childValue.min > parent) break;
+                    if (childValue.min > limit) break;
                     if (childValue.value) |v| {
-                        if (innerDepth == maxDepth - 1 and v == parent) {
-                            parent = childValue.parent orelse parent;
-                        }
-                        if (v < parent) {
+                        if (innerDepth == maxDepth - 1) toChange = @min(v, toChange);
+                        if (v < limit) {
                             if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, innerDepth + 1)) continue;
                             checkPointDepth = innerDepth;
                         }
@@ -378,6 +377,7 @@ pub fn BPE(T: type) type {
                 }
 
                 if (checkPointDepth >= maxDepth) return false;
+                limit = toChange;
             }
 
             return true;
