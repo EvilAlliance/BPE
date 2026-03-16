@@ -433,7 +433,6 @@ pub fn BPE(T: type) type {
             const tokenAvailable: bool = blk: {
                 var depth: usize = startingDepth;
                 var parent = _parent orelse value;
-                var lastValue = value;
 
                 while (depth < maxDepth) : (depth += 1) {
                     var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
@@ -446,13 +445,11 @@ pub fn BPE(T: type) type {
 
                         if (childValue.min > parent) break;
                         if (childValue.value) |v| {
-                            lastValue = v;
+                            if (innerDepth == maxDepth - 1)
+                                parent = childValue.parent orelse v;
 
-                            if (innerDepth == maxDepth - 1) parent = childValue.parent orelse lastValue;
-
-                            if (v < parent and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1)) {
+                            if (v < parent and innerDepth >= maxDepth and try validToken(dic, r, v, childValue.parent, depth + 1, innerDepth + 1))
                                 break :blk false;
-                            }
                         }
                     }
                 }
