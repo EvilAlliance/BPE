@@ -1,18 +1,25 @@
-import subprocess
 from pathlib import Path
+import subprocess
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ---- CONFIG ----
 BPE_CMD_BASE = ["zig", "build", "run", "-Ddebug", "--"]
-INPUT_DIR = Path("verify")   # folder containing the files
+INPUT_DIR = Path("verify")
+
+# Ask OS for number of CPUs (fallback to 4 if None)
+MAX_WORKERS = os.cpu_count() or 4
 
 
 def run_file(file_path: Path):
-    """Run program with a specific file and return success."""
+    """Run program with a specific file and return (file, success)."""
     cmd = BPE_CMD_BASE + [str(file_path)]
-    proc = subprocess.run(cmd,  
+    proc = subprocess.run(
+        cmd,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL)
-    return proc.returncode == 0
+        stderr=subprocess.DEVNULL
+    )
+    return file_path, proc.returncode == 0
 
 
 def main():
@@ -20,7 +27,7 @@ def main():
         print(f"Directory not found: {INPUT_DIR}")
         return
 
-    files = sorted(INPUT_DIR.iterdir())
+    files = [f for f in sorted(INPUT_DIR.iterdir()) if f.is_file()]
 
     if not files:
         print("No files found in verify/")
@@ -28,37 +35,32 @@ def main():
 
     results = []
 
-    for f in files:
-        if not f.is_file():
-            continue
+    print(f"Running {len(files)} files with {MAX_WORKERS} threads...\n")
 
-        print(f"Running: {f}")
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(run_file, f) for f in files]
 
-        success = run_file(f)
+        for future in as_completed(futures):
+            f, success = future.result()
 
-        if success:
-            print(f"✅ SUCCESS: {f}")
-        else:
-            print(f"❌ FAILED : {f}")
+            if success:
+                print(f"✅ SUCCESS: {f}")
+            else:
+                print(f"❌ FAILED : {f}")
 
-        results.append((f, success))
+            results.append((f, success))
 
+    # ---- SUMMARY ----
     print("\n----- TEST SUMMARY -----")
 
-    passed = 0
-    failed = 0
+    passed = sum(1 for _, s in results if s)
+    failed = len(results) - passed
 
-    for f, success in results:
-        status = "PASS" if success else "FAIL"
-        print(f"{status:4} - {f}")
-
-        if success:
-            passed += 1
-        else:
-            failed += 1
+    for f, success in sorted(results):
+        print(f"{'PASS' if success else 'FAIL':4} - {f}")
 
     print("\n------------------------")
-    print(f"Total tests : {passed + failed}")
+    print(f"Total tests : {len(results)}")
     print(f"Passed      : {passed}")
     print(f"Failed      : {failed}")
 
