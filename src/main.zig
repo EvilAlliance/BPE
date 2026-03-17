@@ -350,10 +350,11 @@ pub fn BPE(T: type) type {
             return checkPoint.item;
         }
 
-        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, maxDepth: usize) !bool {
+        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) !bool {
             var toChange = if (_parent.r <= math.maxInt(u8)) value else _parent.r;
             var limit = value;
             var depth: usize = startingDepth;
+            const maxDepth = _maxDepth;
 
             while (depth < maxDepth) : (depth += 1) {
                 var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
@@ -368,7 +369,11 @@ pub fn BPE(T: type) type {
                     const childValue = child.getValue().?;
                     if (childValue.min > limit) break;
                     if (childValue.value) |v| {
-                        if (innerDepth == maxDepth - 1) toChange = if (childValue.parent.?.r <= math.maxInt(u8)) toChange else childValue.parent.?.r;
+                        if (innerDepth == maxDepth - 1) {
+                            const oldToChange = toChange;
+                            toChange = if (childValue.parent.?.r <= math.maxInt(u8)) toChange else childValue.parent.?.r;
+                            if (oldToChange == toChange and childValue.parent.?.l > math.maxInt(u8)) depth += 1;
+                        }
                         if (v < limit) {
                             if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, innerDepth + 1)) continue;
                             checkPointDepth = innerDepth;
