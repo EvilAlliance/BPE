@@ -378,7 +378,7 @@ pub fn BPE(T: type) type {
                     }
                 }
 
-                if (innerDepth <= maxDepth and firstCheckPoint < maxDepth - 2) depth = firstCheckPoint + 1;
+                if (innerDepth < maxDepth - 1 and firstCheckPoint + 1 < maxDepth - 1) depth = firstCheckPoint + 1;
                 if (checkPointDepth >= maxDepth) return false;
                 limit = toChange;
             }
