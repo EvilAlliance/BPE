@@ -361,7 +361,7 @@ pub fn BPE(T: type) type {
                 var innerDepth = checkPointDepth + 1;
                 var firstCheckPoint = depth;
 
-                if (child.getValue().?.min > value) continue;
+                if (child.getValue().?.min > limit) continue;
 
                 while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
                     child = child.getChar(peeked) orelse break;
@@ -378,7 +378,7 @@ pub fn BPE(T: type) type {
                     }
                 }
 
-                if (innerDepth <= maxDepth) depth = firstCheckPoint + 1;
+                if (innerDepth <= maxDepth and firstCheckPoint < maxDepth - 2) depth = firstCheckPoint + 1;
                 if (checkPointDepth >= maxDepth) return false;
                 limit = toChange;
             }
