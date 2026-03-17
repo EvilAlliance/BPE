@@ -123,11 +123,11 @@ pub fn BPE(T: type) type {
         const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
         const Dic = Trie(struct {
             min: T,
-            parent: ?T = null,
+            parent: ?Pair = null,
             value: ?T = null,
 
             pub fn format(self: @This(), w: *io.Writer) !void {
-                try w.print("{?x}(min: {x}, parent: {?x})", .{ self.value, self.min, self.parent });
+                try w.print("{?x}(min: {x}, parent: {?f})", .{ self.value, self.min, self.parent });
             }
         });
 
@@ -227,8 +227,8 @@ pub fn BPE(T: type) type {
             }
 
             const rightValue = current.getPtrValue().?;
-            assert(rightValue.parent == null or rightValue.parent.? == pair.r);
-            if (pair.r >= math.maxInt(u8) and rightValue.parent == null) current.getPtrValue().?.*.parent = pair.r;
+            assert(rightValue.parent == null or (Pair.Context{}).eql(rightValue.parent.?, pair));
+            current.getPtrValue().?.*.parent = pair;
 
             try self.revDic.put(alloc, newItem, pair);
             current.getPtrValue().?.value = newItem;
@@ -343,15 +343,15 @@ pub fn BPE(T: type) type {
 
                 const value = child.getValue().?;
                 if (value.value) |v| {
-                    if (try validToken(dic, r, v, value.parent, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                    if (try validToken(dic, r, v, value.parent.?, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
                 }
             }
 
             return checkPoint.item;
         }
 
-        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: ?T, startingDepth: usize, maxDepth: usize) !bool {
-            var toChange = _parent orelse value;
+        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, maxDepth: usize) !bool {
+            var toChange = if (_parent.r <= math.maxInt(u8)) value else _parent.r;
             var limit = value;
             var depth: usize = startingDepth;
 
@@ -368,9 +368,9 @@ pub fn BPE(T: type) type {
                     const childValue = child.getValue().?;
                     if (childValue.min > limit) break;
                     if (childValue.value) |v| {
-                        if (innerDepth == maxDepth - 1) toChange = childValue.parent orelse toChange;
+                        if (innerDepth == maxDepth - 1) toChange = if (childValue.parent.?.r <= math.maxInt(u8)) toChange else childValue.parent.?.r;
                         if (v < limit) {
-                            if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, innerDepth + 1)) continue;
+                            if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, innerDepth + 1)) continue;
                             checkPointDepth = innerDepth;
                         }
                     }
@@ -497,7 +497,7 @@ pub fn BPE(T: type) type {
             defer w.flush() catch @panic("Failed to print dic state\n");
 
             while (try getToken(self.dic, reader)) |t| {
-                try if (t < math.maxInt(u8))
+                try if (t <= math.maxInt(u8))
                     w.writeByte(@intCast(t))
                 else
                     w.print("<{x}>", .{t});
