@@ -359,7 +359,6 @@ pub fn BPE(T: type) type {
                 var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
                 var checkPointDepth = depth;
                 var innerDepth = checkPointDepth + 1;
-                var firstCheckPoint = depth;
 
                 if (child.getValue().?.min > limit) continue;
 
@@ -372,13 +371,11 @@ pub fn BPE(T: type) type {
                         if (innerDepth == maxDepth - 1) toChange = childValue.parent orelse toChange;
                         if (v < limit) {
                             if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent, checkPointDepth + 1, innerDepth + 1)) continue;
-                            if (firstCheckPoint != depth) firstCheckPoint = checkPointDepth;
                             checkPointDepth = innerDepth;
                         }
                     }
                 }
 
-                if (innerDepth < maxDepth - 1 and firstCheckPoint + 1 < maxDepth - 1) depth = firstCheckPoint + 1;
                 if (checkPointDepth >= maxDepth) return false;
                 limit = toChange;
             }
