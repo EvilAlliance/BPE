@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 # ---- CONFIG ----
-BPE_CMD = ["zig", "build", "run", "-Ddebug", "--", "test.txt"]
+BPE_CMD = ["zig", "build", "run", "--release=fast", "-Ddebug", "--", "test.txt"]
 FILE_NAME = "test.txt"
 
 VOWELS = "aeiou"
@@ -42,7 +42,7 @@ def gen_text(n):
 
 # ---- Fibonacci generator ----
 def fib_sequence():
-    a, b = 1, 1
+    a, b = 3, 5
     while True:
         yield a
         a, b = b, a + b
@@ -55,7 +55,9 @@ def main():
 
         end_time = time.time() + duration
 
+        count = 0;
         while time.time() < end_time:
+            count += 1;
             text = gen_text(n)
             Path(FILE_NAME).write_text(text)
 
@@ -68,6 +70,7 @@ def main():
                 print(f"Failing size: {n}")
                 print(f"Input saved in: {FILE_NAME}")
                 return
+        print(f"Did {count} iteration");
 
 if __name__ == "__main__":
     main()

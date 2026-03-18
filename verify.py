@@ -4,7 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ---- CONFIG ----
-BPE_CMD_BASE = ["zig", "build", "run", "-Ddebug", "--"]
+BPE_CMD_BASE = ["zig", "build", "--release=fast", "run", "-Ddebug", "--"]
 INPUT_DIR = Path("verify")
 
 # Ask OS for number of CPUs (fallback to 4 if None)
