@@ -351,7 +351,7 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
-            // if (value == 0x238) @breakpoint();
+            if (value == 0x37b) @breakpoint();
 
             // TODO: Manage the left case
             var toChange = if (_parent.r <= math.maxInt(u8)) value else _parent.r;
@@ -393,7 +393,7 @@ pub fn BPE(T: type) type {
                 if (checkPointDepth >= maxDepth) return false;
                 if (cutMaxDepth) maxDepth -= 1;
                 limit = toChange;
-                toChange = newToChange;
+                if (newToChange != 0) toChange = newToChange;
             }
 
             return true;
