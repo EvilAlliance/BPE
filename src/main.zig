@@ -383,7 +383,7 @@ pub fn BPE(T: type) type {
                             if (parent == 0 and childValue.parent.?.l > math.maxInt(u8)) {
                                 if (try charBelongToToken(dic, r, maxDepth - 1, v)) return false;
 
-                                toChange = childValue.parent.?.l;
+                                parent = childValue.parent.?.l;
                                 cutMaxDepth = true;
                             }
                         }
@@ -395,7 +395,10 @@ pub fn BPE(T: type) type {
                 }
 
                 if (checkPointDepth >= maxDepth) return false;
-                if (cutMaxDepth) maxDepth -= 1;
+                if (cutMaxDepth) {
+                    maxDepth -= 1;
+                    depth -= 1;
+                }
                 limit = toChange;
             }
 
