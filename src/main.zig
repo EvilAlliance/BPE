@@ -351,6 +351,7 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
+            if (value == 0x104) @breakpoint();
             // TODO: Manage the left case
             var parent = if (_parent.r > math.maxInt(u8)) _parent.r else 0;
             var toChange = value;
