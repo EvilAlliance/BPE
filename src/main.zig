@@ -351,10 +351,11 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
-            if (value == 0x37b) @breakpoint();
+            // if (value == 0x37b) @breakpoint();
 
             // TODO: Manage the left case
-            var toChange = if (_parent.r <= math.maxInt(u8)) value else _parent.r;
+            var parent = if (_parent.r > math.maxInt(u8)) _parent.r else 0;
+            var toChange = value;
             var limit = value;
             var depth: usize = startingDepth;
             var maxDepth = _maxDepth;
@@ -364,7 +365,6 @@ pub fn BPE(T: type) type {
                 var checkPointDepth = depth;
                 var innerDepth = checkPointDepth + 1;
                 var cutMaxDepth = false;
-                var newToChange: T = 0;
 
                 if (child.getValue().?.min > limit) continue;
 
@@ -375,8 +375,12 @@ pub fn BPE(T: type) type {
                     if (childValue.min > limit) break;
                     if (childValue.value) |v| {
                         if (innerDepth == maxDepth - 1) {
-                            if (childValue.parent.?.r > math.maxInt(u8)) newToChange = childValue.parent.?.r;
-                            if (newToChange == 0 and childValue.parent.?.l > math.maxInt(u8)) {
+                            if (v == parent) {
+                                toChange = parent;
+                                parent = 0;
+                            }
+                            if (childValue.parent.?.r > math.maxInt(u8)) parent = childValue.parent.?.r;
+                            if (parent == 0 and childValue.parent.?.l > math.maxInt(u8)) {
                                 if (try charBelongToToken(dic, r, maxDepth - 1, v)) return false;
 
                                 toChange = childValue.parent.?.l;
@@ -393,7 +397,6 @@ pub fn BPE(T: type) type {
                 if (checkPointDepth >= maxDepth) return false;
                 if (cutMaxDepth) maxDepth -= 1;
                 limit = toChange;
-                if (newToChange != 0) toChange = newToChange;
             }
 
             return true;
