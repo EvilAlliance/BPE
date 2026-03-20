@@ -122,12 +122,13 @@ pub fn BPE(T: type) type {
         const PairCounting = std.HashMapUnmanaged(Pair, u32, Pair.Context, 50);
         const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
         const Dic = Trie(struct {
-            min: T,
             parent: ?Pair = null,
+            leftLen: u32 = 0,
+            min: T,
             value: ?T = null,
 
             pub fn format(self: @This(), w: *io.Writer) !void {
-                try w.print("{?x}(min: {x}, parent: {?f})", .{ self.value, self.min, self.parent });
+                try w.print("{?x}(min: {x}, parent: {?f} toReachLeft: {})", .{ self.value, self.min, self.parent, self.leftLen });
             }
         });
 
@@ -211,6 +212,7 @@ pub fn BPE(T: type) type {
 
             var current = self.dic;
             itemToSlice(&self.revDic, &list, pair.l);
+            const leftLen = list.items.len;
 
             for (list.items) |item| {
                 current = try current.insertChar(arenaAllocator, item);
@@ -229,6 +231,7 @@ pub fn BPE(T: type) type {
             const rightValue = current.getPtrValue().?;
             assert(rightValue.parent == null or (Pair.Context{}).eql(rightValue.parent.?, pair));
             current.getPtrValue().?.*.parent = pair;
+            current.getPtrValue().?.*.leftLen = @intCast(leftLen);
 
             try self.revDic.put(alloc, newItem, pair);
             current.getPtrValue().?.value = newItem;
@@ -351,58 +354,66 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
-            if (value == 0x104) @breakpoint();
-            // TODO: Manage the left case
-            var parent = if (_parent.r > math.maxInt(u8)) _parent.r else 0;
-            var toChange = value;
-            var limit = value;
-            var depth: usize = startingDepth;
-            var maxDepth = _maxDepth;
-
-            while (depth < maxDepth) : (depth += 1) {
-                var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
-                var checkPointDepth = depth;
-                var innerDepth = checkPointDepth + 1;
-                var cutMaxDepth = false;
-
-                if (child.getValue().?.min > limit) continue;
-
-                while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
-                    child = child.getChar(peeked) orelse break;
-
-                    const childValue = child.getValue().?;
-                    if (childValue.min > limit) break;
-                    if (childValue.value) |v| {
-                        if (innerDepth == maxDepth - 1) {
-                            if (v == parent) {
-                                toChange = parent;
-                                parent = 0;
-                            }
-                            if (childValue.parent.?.r > math.maxInt(u8)) parent = childValue.parent.?.r;
-                            if (parent == 0 and childValue.parent.?.l > math.maxInt(u8)) {
-                                if (try charBelongToToken(dic, r, maxDepth - 1, v)) return false;
-
-                                parent = childValue.parent.?.l;
-                                cutMaxDepth = true;
-                            }
-                        }
-                        if (v < limit) {
-                            if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, innerDepth + 1)) continue;
-                            checkPointDepth = innerDepth;
-                        }
-                    }
-                }
-
-                if (checkPointDepth >= maxDepth) return false;
-                if (cutMaxDepth) {
-                    maxDepth -= 1;
-                    depth -= 1;
-                }
-                limit = toChange;
-            }
-
-            return true;
+            _ = .{ dic, r, value, _parent, startingDepth, _maxDepth };
         }
+
+        // fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
+        //     // if (value == 0x104) @breakpoint();
+        //     // TODO: Manage the left case
+        //     var parent = if (_parent.r > math.maxInt(u8)) _parent.r else 0;
+        //     var limit = value;
+        //     var depth: usize = startingDepth;
+        //     var maxDepth = _maxDepth;
+        //
+        //     while (depth < maxDepth) : (depth += 1) {
+        //         var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
+        //
+        //         var toChange = limit;
+        //         var checkPointDepth = depth;
+        //         var innerDepth = checkPointDepth + 1;
+        //         var cutMaxDepth = false;
+        //
+        //         if (child.getValue().?.min > limit) continue;
+        //
+        //         while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
+        //             child = child.getChar(peeked) orelse break;
+        //
+        //             const childValue = child.getValue().?;
+        //             if (childValue.min > limit) break;
+        //             if (childValue.value) |v| {
+        //                 if (innerDepth >= maxDepth and v == limit) break;
+        //
+        //                 if (innerDepth == maxDepth - 1) {
+        //                     if (v == parent) {
+        //                         toChange = parent;
+        //                         parent = 0;
+        //                     }
+        //                     if (childValue.parent.?.r > math.maxInt(u8)) parent = childValue.parent.?.r;
+        //                     if (parent == 0 and childValue.parent.?.l > math.maxInt(u8)) {
+        //                         if (try charBelongToToken(dic, r, maxDepth - 1, v)) return false;
+        //
+        //                         parent = childValue.parent.?.l;
+        //                         cutMaxDepth = true;
+        //                     }
+        //                 }
+        //
+        //                 if (v < limit) {
+        //                     if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, innerDepth + 1)) continue;
+        //                     checkPointDepth = innerDepth;
+        //                 }
+        //             }
+        //         }
+        //
+        //         if (checkPointDepth >= maxDepth) return false;
+        //         if (cutMaxDepth) {
+        //             maxDepth -= 1;
+        //             depth -= 1;
+        //         }
+        //         limit = toChange;
+        //     }
+        //
+        //     return true;
+        // }
 
         fn charBelongToToken(dic: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
             var depth = _depth;
