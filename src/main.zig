@@ -140,7 +140,9 @@ pub fn BPE(T: type) type {
 
         pub fn init(arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
             std.log.info("Intializing the BPE", .{});
-            const self = Self{ .file = file, .dic = try .init(arenaAlloc) };
+            const trie: *Dic = try .init(arenaAlloc);
+            trie.setValue(.{ .min = 0 });
+            const self = Self{ .file = file, .dic = trie };
             return self;
         }
 
@@ -346,76 +348,42 @@ pub fn BPE(T: type) type {
 
                 const value = child.getValue().?;
                 if (value.value) |v| {
-                    if (try validToken(dic, r, v, value.parent.?, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                    if (try validToken(dic, r, v, 0, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
                 }
             }
 
             return checkPoint.item;
         }
 
-        fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
-            _ = .{ dic, r, value, _parent, startingDepth, _maxDepth };
+        fn validToken(dic: *Dic, r: *io.Reader, limit: T, leftLen: u32, startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
+            if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, r, startingDepth, limit);
+            var child = dic;
+            for (startingDepth..startingDepth + leftLen) |i| {
+                child = child.getChar((try peekByte(r, i)).?).?;
+            }
+
+            const leftDic = child;
+            const leftValue = leftDic.getValue().?;
+            if (leftValue.value) |_| {
+                if (!try validToken(dic, r, leftValue.value.?, leftValue.leftLen, startingDepth, startingDepth + leftLen)) return false;
+            }
+
+            child = dic;
+
+            for (startingDepth + leftLen..maxDepth) |i| {
+                child = child.getChar((try peekByte(r, i)).?) orelse return true;
+            }
+
+            const rightDic = child;
+            const rightValue = rightDic.getValue().?;
+            if (rightValue.value) |_| {
+                if (!try validToken(dic, r, rightValue.value.?, rightValue.leftLen, startingDepth + leftLen, maxDepth)) return false;
+            }
+
+            return !try hasAnotherTokenLater(rightDic, r, maxDepth, limit);
         }
 
-        // fn validToken(dic: *Dic, r: *io.Reader, value: T, _parent: Pair, startingDepth: usize, _maxDepth: usize) error{ReadFailed}!bool {
-        //     // if (value == 0x104) @breakpoint();
-        //     // TODO: Manage the left case
-        //     var parent = if (_parent.r > math.maxInt(u8)) _parent.r else 0;
-        //     var limit = value;
-        //     var depth: usize = startingDepth;
-        //     var maxDepth = _maxDepth;
-        //
-        //     while (depth < maxDepth) : (depth += 1) {
-        //         var child = dic.getChar(try peekByte(r, depth) orelse unreachable) orelse continue;
-        //
-        //         var toChange = limit;
-        //         var checkPointDepth = depth;
-        //         var innerDepth = checkPointDepth + 1;
-        //         var cutMaxDepth = false;
-        //
-        //         if (child.getValue().?.min > limit) continue;
-        //
-        //         while (try peekByte(r, innerDepth)) |peeked| : (innerDepth += 1) {
-        //             child = child.getChar(peeked) orelse break;
-        //
-        //             const childValue = child.getValue().?;
-        //             if (childValue.min > limit) break;
-        //             if (childValue.value) |v| {
-        //                 if (innerDepth >= maxDepth and v == limit) break;
-        //
-        //                 if (innerDepth == maxDepth - 1) {
-        //                     if (v == parent) {
-        //                         toChange = parent;
-        //                         parent = 0;
-        //                     }
-        //                     if (childValue.parent.?.r > math.maxInt(u8)) parent = childValue.parent.?.r;
-        //                     if (parent == 0 and childValue.parent.?.l > math.maxInt(u8)) {
-        //                         if (try charBelongToToken(dic, r, maxDepth - 1, v)) return false;
-        //
-        //                         parent = childValue.parent.?.l;
-        //                         cutMaxDepth = true;
-        //                     }
-        //                 }
-        //
-        //                 if (v < limit) {
-        //                     if (innerDepth >= maxDepth and !try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, innerDepth + 1)) continue;
-        //                     checkPointDepth = innerDepth;
-        //                 }
-        //             }
-        //         }
-        //
-        //         if (checkPointDepth >= maxDepth) return false;
-        //         if (cutMaxDepth) {
-        //             maxDepth -= 1;
-        //             depth -= 1;
-        //         }
-        //         limit = toChange;
-        //     }
-        //
-        //     return true;
-        // }
-
-        fn charBelongToToken(dic: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
+        fn hasAnotherTokenLater(dic: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
             var depth = _depth;
             var child = dic;
             var checkPointDepth = depth;
@@ -426,7 +394,7 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit and try validToken(dic, r, v, childValue.parent.?, checkPointDepth + 1, depth + 1)) return true;
+                    if (v < limit and try validToken(dic, r, v, 0, checkPointDepth + 1, depth + 1)) return true;
                     checkPointDepth = depth;
                 }
             }
