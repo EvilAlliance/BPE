@@ -356,7 +356,7 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, limit: T, leftLen: u32, startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
-            if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, r, startingDepth, limit);
+            if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, dic, r, startingDepth, limit);
             var child = dic;
             for (startingDepth..startingDepth + leftLen) |i| {
                 child = child.getChar((try peekByte(r, i)).?).?;
@@ -380,12 +380,12 @@ pub fn BPE(T: type) type {
                 if (!try validToken(dic, r, rightValue.value.?, rightValue.leftLen, startingDepth + leftLen, maxDepth)) return false;
             }
 
-            return !try hasAnotherTokenLater(rightDic, r, maxDepth, limit);
+            return !try hasAnotherTokenLater(dic, rightDic, r, maxDepth, limit);
         }
 
-        fn hasAnotherTokenLater(dic: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
+        fn hasAnotherTokenLater(root: *Dic, current: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
             var depth = _depth;
-            var child = dic;
+            var child = current;
             var checkPointDepth = depth;
 
             while (try peekByte(r, depth)) |peeked| : (depth += 1) {
@@ -394,7 +394,7 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit and try validToken(dic, r, v, 0, checkPointDepth + 1, depth + 1)) return true;
+                    if (v < limit and try validToken(root, r, v, 0, checkPointDepth + 1, depth + 1)) return true;
                     checkPointDepth = depth;
                 }
             }
