@@ -356,7 +356,9 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, limit: T, leftLen: u32, startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
+            // if (limit == 0x18c) @breakpoint();
             if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, dic, r, startingDepth, limit);
+
             var child = dic;
             for (startingDepth..startingDepth + leftLen) |i| {
                 child = child.getChar((try peekByte(r, i)).?).?;
@@ -392,7 +394,7 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit and try validToken(root, r, v, 0, checkPointDepth + 1, depth + 1)) return true;
+                    if (v < limit and try validToken(root, r, if (childValue.parent.?.r > math.maxInt(u8)) childValue.parent.?.r else v, 0, checkPointDepth + 1, depth + 1)) return true;
                     checkPointDepth = depth;
                 }
             }
