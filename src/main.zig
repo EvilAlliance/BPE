@@ -362,9 +362,11 @@ pub fn BPE(T: type) type {
                 child = child.getChar((try peekByte(r, i)).?).?;
             }
 
-            const leftDic = child;
-            const leftValue = leftDic.getValue().?;
-            if (leftLen != 0 and !try validToken(dic, r, if (leftValue.value) |v| v else limit, leftValue.leftLen, startingDepth, startingDepth + leftLen)) return false;
+            // NOTE: At the moement this is not needed
+            //
+            // const leftDic = child;
+            // const leftValue = leftDic.getValue().?;
+            // if (leftLen != 0 and !try validToken(dic, r, if (leftValue.value) |v| v else limit, leftValue.leftLen, startingDepth, startingDepth + leftLen)) return false;
 
             var rightChild = dic;
 
