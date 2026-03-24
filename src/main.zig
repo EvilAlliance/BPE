@@ -386,7 +386,6 @@ pub fn BPE(T: type) type {
         fn hasAnotherTokenLater(root: *Dic, current: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
             var depth = _depth;
             var child = current;
-            var checkPointDepth = depth - 1;
 
             while (try peekByte(r, depth)) |peeked| : (depth += 1) {
                 child = child.getChar(peeked) orelse break;
@@ -394,13 +393,7 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit) {
-                        // TODO: Try to use the value;
-                        const value = if (childValue.parent.?.r > math.maxInt(u8)) childValue.parent.?.r else v;
-                        _ = value;
-                        if (try validToken(root, r, v, childValue.leftLen, _depth, depth + 1)) return true;
-                    }
-                    checkPointDepth = depth;
+                    if (v < limit and try validToken(root, r, v, childValue.leftLen, _depth, depth + 1)) return true;
                 }
             }
 
