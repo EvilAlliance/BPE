@@ -378,7 +378,7 @@ pub fn BPE(T: type) type {
             }
 
             const rightValue = rightChild.getValue().?;
-            if (rightChild != dic and !try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth)) return false;
+            if (rightChild != dic and (!try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth) or try hasAnotherTokenLater(dic, rightChild, r, maxDepth, limit))) return false;
 
             return !try hasAnotherTokenLater(dic, child, r, maxDepth, limit);
         }
