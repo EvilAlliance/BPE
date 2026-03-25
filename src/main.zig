@@ -44,7 +44,9 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         try bpe.printText();
     }
 
-    while (bpe.searchMaxPair()) |toSwap| {
+    while (bpe.searchMaxPair()) |t| {
+        const toSwap, const count = t;
+        std.log.debug("Initiating proccess to replace {f} with {}", .{ toSwap, count });
         const newItem = bpe.reserveItem();
         try bpe.iterate(alloc, toSwap, newItem);
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
@@ -183,7 +185,7 @@ pub fn BPE(T: type) type {
             std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.count.count(), (try self.file.getEndPos()) - 1 });
         }
 
-        pub fn searchMaxPair(self: *Self) ?Pair {
+        pub fn searchMaxPair(self: *Self) ?struct { Pair, u32 } {
             if (self.count.count() == 0) return null;
             var it = self.count.iterator();
 
@@ -197,7 +199,7 @@ pub fn BPE(T: type) type {
                     max = .{ entry.key_ptr.*, entry.value_ptr.* };
             }
 
-            return if (max.@"1" > 1) max.@"0" else null;
+            return if (max.@"1" > 1) max else null;
         }
 
         pub fn reserveItem(self: *Self) T {
