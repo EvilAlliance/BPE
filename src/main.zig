@@ -39,7 +39,7 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
     defer bpe.deinit(alloc, arenaAlloc);
     try bpe.populate(alloc);
 
-    if (build_options.trace) {
+    if (buildOptions.trace) {
         try bpe.printCount();
         try bpe.printText();
     }
@@ -49,13 +49,13 @@ fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
         try bpe.iterate(alloc, toSwap, newItem);
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
-        if (build_options.trace) {
+        if (buildOptions.trace) {
             try bpe.printDic();
             try bpe.printCount();
             try bpe.printText();
         }
 
-        if (build_options.debug) try bpe.verifyCount(alloc);
+        if (buildOptions.debug) try bpe.verifyCount(alloc);
     }
 
     try bpe.printCount();
@@ -157,7 +157,7 @@ pub fn BPE(T: type) type {
             std.log.info("Populating the Dic", .{});
             var timer: ?std.time.Timer = null;
 
-            if (build_options.bench) {
+            if (buildOptions.bench) {
                 timer = try std.time.Timer.start();
             }
 
@@ -176,7 +176,7 @@ pub fn BPE(T: type) type {
                     try self.count.put(alloc, toInsert, 1);
             }
 
-            if (build_options.bench) {
+            if (buildOptions.bench) {
                 std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
 
@@ -256,7 +256,7 @@ pub fn BPE(T: type) type {
 
             var timer: ?std.time.Timer = null;
 
-            if (build_options.bench) {
+            if (buildOptions.bench) {
                 timer = try std.time.Timer.start();
             }
 
@@ -309,7 +309,7 @@ pub fn BPE(T: type) type {
 
             assert(self.count.get(pairToChange).? == 0);
 
-            if (build_options.bench) {
+            if (buildOptions.bench) {
                 std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
             }
 
@@ -533,7 +533,7 @@ test {
 const Trie = @import("Trie.zig").Trie;
 
 const std = @import("std");
-const build_options = @import("build_options");
+const buildOptions = @import("buildOptions");
 
 const Allocator = std.mem.Allocator;
 const Order = std.math.Order;

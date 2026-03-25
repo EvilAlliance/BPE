@@ -27,7 +27,8 @@ def main():
         print(f"Directory not found: {INPUT_DIR}")
         return
 
-    files = [f for f in sorted(INPUT_DIR.iterdir()) if f.is_file()]
+    files = [f for f in INPUT_DIR.iterdir() if f.is_file()]
+    files.sort(key=lambda f: (f.stat().st_size, f.name), reverse=True)
 
     if not files:
         print("No files found in verify/")
