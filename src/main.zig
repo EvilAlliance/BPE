@@ -348,7 +348,7 @@ pub fn BPE(T: type) type {
 
                 const value = child.getValue().?;
                 if (value.value) |v| {
-                    if (try validToken(dic, r, v, 0, checkPoint.depth + 1, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
+                    if (try validToken(dic, r, v, 0, value.leftLen, depth + 1)) checkPoint = .{ .item = v, .depth = depth };
                 }
             }
 
@@ -378,11 +378,9 @@ pub fn BPE(T: type) type {
             }
 
             const rightValue = rightChild.getValue().?;
-            if (rightChild != dic) {
-                const valid = !try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth);
-                const after = try hasAnotherTokenLater(dic, rightChild, r, startingDepth + leftLen, maxDepth, limit);
-                if (valid or after) return false;
-            }
+            if (rightChild != dic and
+                (!try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth) or
+                    try hasAnotherTokenLater(dic, rightChild, r, startingDepth + leftLen, maxDepth, limit))) return false;
 
             return !try hasAnotherTokenLater(dic, child, r, startingDepth, maxDepth, limit);
         }
@@ -397,7 +395,8 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit and try validToken(root, r, v, childValue.leftLen, startOfToken, depth + 1)) return true;
+                    // WARN: StartOfToken + childValue.leftLen may cause problems
+                    if (v < limit and try validToken(root, r, v, 0, startOfToken + childValue.leftLen, depth + 1)) return true;
                 }
             }
 
