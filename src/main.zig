@@ -356,8 +356,8 @@ pub fn BPE(T: type) type {
         }
 
         fn validToken(dic: *Dic, r: *io.Reader, limit: T, leftLen: u32, startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
-            // if (limit == 0x18c) @breakpoint();
-            if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, dic, r, startingDepth, limit);
+            // if (limit == 0x3ce) @breakpoint();
+            if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, dic, r, startingDepth, startingDepth, limit);
 
             var child = dic;
             for (startingDepth..startingDepth + leftLen) |i| {
@@ -378,12 +378,16 @@ pub fn BPE(T: type) type {
             }
 
             const rightValue = rightChild.getValue().?;
-            if (rightChild != dic and (!try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth) or try hasAnotherTokenLater(dic, rightChild, r, maxDepth, limit))) return false;
+            if (rightChild != dic) {
+                const valid = !try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth);
+                const after = try hasAnotherTokenLater(dic, rightChild, r, startingDepth + leftLen, maxDepth, limit);
+                if (valid or after) return false;
+            }
 
-            return !try hasAnotherTokenLater(dic, child, r, maxDepth, limit);
+            return !try hasAnotherTokenLater(dic, child, r, startingDepth, maxDepth, limit);
         }
 
-        fn hasAnotherTokenLater(root: *Dic, current: *Dic, r: *io.Reader, _depth: usize, limit: T) !bool {
+        fn hasAnotherTokenLater(root: *Dic, current: *Dic, r: *io.Reader, startOfToken: usize, _depth: usize, limit: T) !bool {
             var depth = _depth;
             var child = current;
 
@@ -393,7 +397,7 @@ pub fn BPE(T: type) type {
                 const childValue = child.getValue().?;
                 if (childValue.min > limit) break;
                 if (childValue.value) |v| {
-                    if (v < limit and try validToken(root, r, v, childValue.leftLen, _depth, depth + 1)) return true;
+                    if (v < limit and try validToken(root, r, v, childValue.leftLen, startOfToken, depth + 1)) return true;
                 }
             }
 
