@@ -9,6 +9,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const traceBpe = b.option(bool, "trace", "Print BPE dictionary and text at each stage") orelse false;
     const bench = b.option(bool, "bench", "Prints the time it takes to do mayor steps") orelse false;
+    const debug = b.option(bool, "debug", "Checks the count after each iteration") orelse false;
     // Standard target options allow the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -89,7 +90,8 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(bool, "trace", traceBpe);
     options.addOption(bool, "bench", bench);
-    exe.root_module.addOptions("build_options", options);
+    options.addOption(bool, "debug", debug);
+    exe.root_module.addOptions("buildOptions", options);
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

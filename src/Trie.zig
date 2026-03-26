@@ -223,7 +223,7 @@ pub fn Trie(V: type) type {
         }
 
         fn prettyPrintIndent(self: *Self, w: *std.io.Writer, indent: usize) !void {
-            const spaces = "  " ** 20;
+            const spaces = "  " ** 200;
             const indentStr = spaces[0..@min(indent * 2, spaces.len)];
 
             switch (self.*) {
@@ -274,10 +274,10 @@ pub fn Trie(V: type) type {
             };
         }
 
-        pub fn getPtrValue(self: *Self) *?V {
+        pub fn getPtrValue(self: *Self) ?*V {
             return &switch (self.*) {
-                .split => |*s| s.value,
-                .bridge => |*b| b.value,
+                .split => |*s| s.value orelse return null,
+                .bridge => |*b| b.value orelse return null,
             };
         }
     };

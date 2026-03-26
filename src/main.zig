@@ -11,7 +11,16 @@ pub fn main() !void {
 }
 
 fn juicyMain(alloc: Allocator) !void {
-    const pathAbs = try std.fs.realpathAlloc(alloc, "./LoremIpsum.txt");
+    var args = try std.process.argsWithAllocator(alloc);
+    defer args.deinit();
+
+    const exeName = args.next() orelse "BPE";
+    const inputPath = args.next() orelse {
+        std.log.err("Usage: {s} <file>", .{exeName});
+        return error.InvalidArguments;
+    };
+
+    const pathAbs = try std.fs.realpathAlloc(alloc, inputPath);
     defer alloc.free(pathAbs);
 
     const file = try std.fs.openFileAbsolute(pathAbs, .{});
@@ -21,465 +30,37 @@ fn juicyMain(alloc: Allocator) !void {
 }
 
 fn bypePairEncodingHashMap(alloc: Allocator, file: std.fs.File) !void {
-    const Bpe = BPE(u16);
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const arenaAlloc = arena.allocator();
 
-    var bpe = try Bpe.init(alloc, arenaAlloc, file);
+    var bpe = try BPE.init(arenaAlloc, file);
     defer bpe.deinit(alloc, arenaAlloc);
     try bpe.populate(alloc);
 
-    if (build_options.trace) {
+    if (buildOptions.trace) {
         try bpe.printCount();
         try bpe.printText();
     }
 
-    while (bpe.searchMaxPair()) |toSwap| {
+    while (bpe.searchMaxPair()) |t| {
+        const toSwap, const count = t;
+        std.log.debug("Initiating proccess to replace {f} with {}", .{ toSwap, count });
         const newItem = bpe.reserveItem();
         try bpe.iterate(alloc, toSwap, newItem);
         if (try bpe.addPair(arenaAlloc, alloc, toSwap, newItem)) break;
 
-        if (build_options.trace) {
-            if (newItem >= 1e1) {
-                try bpe.printDic();
-                try bpe.printCount();
-                try bpe.printText();
-            }
+        if (buildOptions.trace) {
+            try bpe.printDic();
+            try bpe.printCount();
+            try bpe.printText();
         }
+
+        if (buildOptions.debug) try bpe.verifyCount(alloc);
     }
 
     try bpe.printCount();
     try bpe.printText();
-}
-
-pub fn BPE(T: type) type {
-    const typeInfo = @typeInfo(T);
-    switch (typeInfo) {
-        .int => |i| {
-            if (i.signedness == .signed) @compileError("Expected unsinged");
-            if (i.bits <= 8) @compileError("Cannot Extend the domain if it es less than u8");
-        },
-        else => @compileError("Invalid Type, Expects any type of unsigned int"),
-    }
-
-    return struct {
-        const Self = @This();
-
-        const Pair = struct {
-            l: T,
-            r: T,
-
-            pub const Context = struct {
-                pub fn hash(_: @This(), p: Pair) usize {
-                    var x: usize = @as(usize, @intCast(p.l)) | (@as(usize, @intCast(p.r)) << 16) | (@as(usize, @intCast(p.l)) << 32) | (@as(usize, @intCast(p.r)) << 48);
-                    x ^= x >> 33;
-                    x *%= 0xff51afd7ed558ccd;
-                    x ^= x >> 33;
-                    x *%= 0xc4ceb9fe1a85ec53;
-                    x ^= x >> 33;
-                    return x;
-                }
-
-                pub fn eql(_: @This(), a: Pair, b: Pair) bool {
-                    return a.l == b.l and a.r == b.r;
-                }
-            };
-
-            pub fn init(l: T, r: T) Pair {
-                return .{ .l = l, .r = r };
-            }
-
-            pub fn format(self: Pair, w: *io.Writer) !void {
-                try w.writeByte('(');
-                if (self.l <= math.maxInt(u8))
-                    try w.print("{c}", .{@as(u8, @intCast(self.l))})
-                else
-                    try w.print("{x}", .{self.l});
-
-                _ = try w.write(", ");
-
-                if (self.r <= math.maxInt(u8))
-                    try w.print("{c}", .{@as(u8, @intCast(self.r))})
-                else
-                    try w.print("{x}", .{self.r});
-
-                try w.writeByte(')');
-            }
-        };
-
-        const BufferLen = std.math.pow(usize, 2, 10);
-
-        const PairCounting = std.HashMapUnmanaged(Pair, u32, Pair.Context, 50);
-        const RevDic = std.HashMapUnmanaged(T, Pair, std.hash_map.AutoContext(T), 50);
-        const Dic = Trie(struct {
-            min: T,
-            value: ?T = null,
-
-            pub fn format(self: @This(), w: *io.Writer) !void {
-                try w.print("{?x}({x})", .{ self.value, self.min });
-            }
-        });
-
-        count: PairCounting = .{},
-        dic: *Dic,
-        revDic: RevDic = .{},
-        file: std.fs.File,
-        newItem: T = math.maxInt(u8) + 1,
-
-        pub fn init(alloc: Allocator, arenaAlloc: Allocator, file: std.fs.File) Allocator.Error!Self {
-            std.log.info("Intializing the BPE", .{});
-            const self = Self{ .file = file, .dic = try .init(arenaAlloc) };
-            _ = alloc;
-
-            // var self = Self{ .file = file, .dic = try .init(arenaAlloc) };
-            // try self.count.ensureTotalCapacity(alloc, math.pow(u32, math.maxInt(u8), 2));
-            // try self.revDic.ensureTotalCapacity(alloc, math.maxInt(T));
-
-            return self;
-        }
-
-        pub fn deinit(self: *Self, alloc: Allocator, arenaAlloc: Allocator) void {
-            std.log.info("Deintializing the BPE", .{});
-            self.revDic.deinit(alloc);
-            self.count.deinit(alloc);
-            self.dic.deinit(arenaAlloc);
-        }
-
-        pub fn populate(self: *Self, alloc: Allocator) !void {
-            std.log.info("Populating the Dic", .{});
-            var timer: ?std.time.Timer = null;
-
-            if (build_options.bench) {
-                timer = try std.time.Timer.start();
-            }
-
-            var buffer: [BufferLen]u8 = undefined;
-            var readerIO = self.file.reader(&buffer);
-            const reader = &readerIO.interface;
-
-            var before: T = try reader.takeByte();
-            while (reader.takeByte() catch null) |r| {
-                const toInsert = Pair.init(before, r);
-                defer before = toInsert.r;
-
-                if (self.count.getPtr(toInsert)) |value|
-                    value.* += 1
-                else
-                    try self.count.put(alloc, toInsert, 1);
-            }
-
-            if (build_options.bench) {
-                std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
-            }
-
-            std.log.info("Resulting dic with {} unique pairs from {} pairs", .{ self.count.count(), (try self.file.getEndPos()) - 1 });
-        }
-
-        pub fn searchMaxPair(self: *Self) ?Pair {
-            if (self.count.count() == 0) return null;
-            var it = self.count.iterator();
-
-            const first = it.next().?;
-            var max: struct { Pair, u32 } = .{ first.key_ptr.*, first.value_ptr.* };
-
-            while (it.next()) |entry| {
-                if (max.@"1" < entry.value_ptr.*)
-                    max = .{ entry.key_ptr.*, entry.value_ptr.* }
-                else if (max.@"1" == entry.value_ptr.* and (entry.key_ptr.l < max.@"0".l and entry.key_ptr.r < max.@"0".r))
-                    max = .{ entry.key_ptr.*, entry.value_ptr.* };
-            }
-
-            return if (max.@"1" > 1) max.@"0" else null;
-        }
-
-        pub fn reserveItem(self: *Self) T {
-            const ret = self.newItem;
-            self.newItem += 1;
-            return ret;
-        }
-
-        pub fn addPair(self: *Self, arenaAllocator: Allocator, alloc: Allocator, pair: Pair, newItem: T) !bool {
-            std.log.info("Adding to dic new char for domain {x}", .{newItem});
-
-            const current = try insertBasicDomian(arenaAllocator, self.dic, self.revDic, pair, newItem);
-            current.getPtrValue().*.?.value = newItem;
-
-            try self.revDic.put(alloc, newItem, pair);
-
-            return self.newItem == math.maxInt(T);
-        }
-
-        fn insertBasicDomian(alloc: Allocator, trie: *Dic, revDic: RevDic, pair: Pair, tryNewValue: T) !*Dic {
-            var current: *Dic = trie;
-            if (pair.l <= math.maxInt(u8)) {
-                current = try current.insertChar(alloc, @intCast(pair.l));
-            } else {
-                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.l).?, tryNewValue);
-            }
-
-            const left = current.getPtrValue();
-            if (left.*) |*v| {
-                v.min = @min(tryNewValue, v.min);
-            } else {
-                left.* = .{ .min = tryNewValue };
-            }
-
-            if (pair.r <= math.maxInt(u8)) {
-                current = try current.insertChar(alloc, @intCast(pair.r));
-            } else {
-                current = try insertBasicDomian(alloc, current, revDic, revDic.get(pair.r).?, tryNewValue);
-            }
-
-            const right = current.getPtrValue();
-            if (right.*) |*v| {
-                v.min = @min(tryNewValue, v.min);
-            } else {
-                right.* = .{ .min = tryNewValue };
-            }
-
-            return current;
-        }
-
-        pub fn iterate(self: *Self, alloc: Allocator, pairToChange: Pair, newItem: T) !void {
-            std.log.info("Logically Replacing {f} with {x}", .{ pairToChange, newItem });
-
-            var timer: ?std.time.Timer = null;
-
-            if (build_options.bench) {
-                timer = try std.time.Timer.start();
-            }
-
-            const ctx: Pair.Context = .{};
-
-            var buffer: [BufferLen]u8 = undefined;
-            var readerIO = self.file.reader(&buffer);
-            const reader = &readerIO.interface;
-
-            var before: ?T = null;
-            var l: ?T = try getToken(self.dic, &self.revDic, reader);
-            while (l) |left| {
-                const r = try getToken(self.dic, &self.revDic, reader) orelse break;
-                const current = Pair.init(left, r);
-
-                if (ctx.eql(current, pairToChange)) {
-                    if (before) |b| {
-                        const decrement = Pair.init(b, left);
-                        self.count.getPtr(decrement).?.* -= 1;
-
-                        const toInsert = Pair.init(b, newItem);
-                        if (self.count.getPtr(toInsert)) |value|
-                            value.* += 1
-                        else
-                            try self.count.put(alloc, toInsert, 1);
-                    }
-
-                    if (self.count.getPtr(current)) |count| count.* -= 1;
-
-                    const after = try getToken(self.dic, &self.revDic, reader);
-
-                    if (after) |a| {
-                        const decrement = Pair.init(r, a);
-                        self.count.getPtr(decrement).?.* -= 1;
-
-                        const toInsert = Pair.init(newItem, a);
-                        if (self.count.getPtr(toInsert)) |value|
-                            value.* += 1
-                        else
-                            try self.count.put(alloc, toInsert, 1);
-                    }
-
-                    before = newItem;
-                    l = after;
-                } else {
-                    before = left;
-                    l = r;
-                }
-            }
-
-            assert(self.count.get(pairToChange).? == 0);
-
-            if (build_options.bench) {
-                std.log.debug("It took {}s", .{@as(f64, @floatFromInt(timer.?.lap())) / std.time.ns_per_s});
-            }
-
-            var tryAgain = true;
-            var buff: [20]Pair = undefined;
-            var list: std.ArrayList(Pair) = .initBuffer(&buff);
-            while (tryAgain) {
-                defer list.clearRetainingCapacity();
-                var it = self.count.iterator();
-
-                while (it.next()) |e| {
-                    if (e.value_ptr.* == 0) list.appendBounded(e.key_ptr.*) catch break;
-                } else {
-                    tryAgain = false;
-                }
-
-                for (list.items) |v| {
-                    _ = self.count.remove(v);
-                }
-            }
-
-            self.count.rehash(Pair.Context{});
-
-            // WARN: Printing the counting the quantity of pairs is a little more dificult
-            std.log.info("Resulting dic with {} unique pairs", .{self.count.count()});
-        }
-
-        fn getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader) !?T {
-            const advancedOrNull = try _getToken(dic, revDic, r, 0, math.maxInt(T));
-            if (advancedOrNull == null) return null;
-            const advanced = advancedOrNull.?;
-
-            assert(advanced.count > 0);
-            _ = try r.take(advanced.count);
-            return advanced.item;
-        }
-
-        fn advanceDic(dic: *Dic, revDic: *const RevDic, token: T, count: usize) ?struct { *Dic, usize } {
-            const pair = revDic.get(token).?;
-
-            const left, var newCount = (if (pair.l < math.maxInt(u8))
-                .{ dic.getChar(@intCast(pair.l)) orelse return null, count + 1 }
-            else
-                advanceDic(dic, revDic, pair.l, count)) orelse return null;
-
-            const right, newCount = (if (pair.r < math.maxInt(u8))
-                .{ left.getChar(@intCast(pair.r)) orelse return null, newCount + 1 }
-            else
-                advanceDic(left, revDic, pair.r, newCount)) orelse return null;
-
-            return .{ right, newCount };
-        }
-
-        fn peekByte(r: *io.Reader, n: usize) !u8 {
-            assert(n + 1 < BufferLen);
-            const buf = try r.peek(n + 1);
-
-            if (buf.len <= n) {
-                return error.EndOfStream;
-            }
-
-            return buf[n];
-        }
-
-        const Token = struct {
-            item: T,
-            count: usize,
-        };
-
-        fn _getToken(dic: *Dic, revDic: *const RevDic, r: *io.Reader, depth: usize, min: T) !?Token {
-            const x = peekByte(r, depth) catch return null;
-
-            var child = dic.getChar(x) orelse return .{ .item = x, .count = depth + 1 };
-            const value = child.getValue().?;
-            if (min <= value.min) return .{ .item = x, .count = depth + 1 };
-
-            var newDepth = depth + 1;
-
-            var checkPoint: Token = .{ .item = x, .count = newDepth };
-
-            blk: while (true) {
-                var nextPeeked = peekByte(r, newDepth) catch break;
-                var tempChild = child.getChar(nextPeeked) orelse break;
-                var newMin = tempChild.getValue().?.min;
-                // WARN: This orelse with value will bite me in the ass some day
-                var nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break;
-                while (newMin < min and nextToken.item <= math.maxInt(u8)) {
-                    child = tempChild;
-
-                    newDepth += 1;
-
-                    if (child.getValue().?.value) |v| {
-                        if (v < min) checkPoint = .{ .item = v, .count = newDepth };
-                    }
-
-                    nextPeeked = peekByte(r, newDepth) catch break :blk;
-                    tempChild = child.getChar(nextPeeked) orelse break :blk;
-                    newMin = tempChild.getValue().?.min;
-                    nextToken = try _getToken(dic, revDic, r, newDepth, tempChild.getValue().?.value orelse newMin) orelse break :blk;
-                } else {
-                    if (newMin < min) if (advanceDic(child, revDic, nextToken.item, newDepth)) |t| {
-                        assert(newDepth < t.@"1");
-                        assert(nextToken.count == t.@"1");
-
-                        child = t.@"0";
-                        newDepth = t.@"1";
-
-                        if (child.getValue().?.value) |v| {
-                            if (v < min) checkPoint = .{ .item = v, .count = newDepth };
-                        }
-                    } else break else break;
-                }
-            }
-            return checkPoint;
-        }
-
-        pub fn printCount(self: *const Self) !void {
-            std.log.info("Printing Dictionay", .{});
-            var buffer: [BufferLen]u8 = undefined;
-            const stderr = std.fs.File.stdout();
-            var writerIO = stderr.writer(&buffer);
-
-            const w = &writerIO.interface;
-            defer w.flush() catch @panic("Failed to print dic state\n");
-
-            _ = try w.write("Resulting Count:\n");
-            var it = self.count.iterator();
-            while (it.next()) |t| {
-                _ = try w.write("\t (");
-
-                if (t.key_ptr.l <= math.maxInt(u8))
-                    try w.writeByte(@intCast(t.key_ptr.l))
-                else
-                    try w.print("{x}", .{t.key_ptr.l});
-
-                _ = try w.write(", ");
-
-                if (t.key_ptr.r <= math.maxInt(u8))
-                    try w.writeByte(@intCast(t.key_ptr.r))
-                else
-                    try w.print("{x}", .{t.key_ptr.r});
-
-                try w.print(") => {}\n", .{t.value_ptr.*});
-            }
-        }
-
-        pub fn printDic(self: *const Self) !void {
-            std.log.info("Printing Dictionay", .{});
-            var buffer: [BufferLen]u8 = undefined;
-            const stderr = std.fs.File.stdout();
-            var writerIO = stderr.writer(&buffer);
-
-            const w = &writerIO.interface;
-            defer w.flush() catch @panic("Failed to print dic state\n");
-
-            _ = try w.write("Resulting Dic:\n");
-            try self.dic.prettyPrint(w);
-        }
-
-        pub fn printText(self: *const Self) !void {
-            std.log.info("Printing Text", .{});
-            var bufferStdOut: [BufferLen]u8 = undefined;
-            const stderr = std.fs.File.stdout();
-            var writerIO = stderr.writer(&bufferStdOut);
-
-            var bufferReader: [BufferLen]u8 = undefined;
-            var readerIO = self.file.reader(&bufferReader);
-            const reader = &readerIO.interface;
-
-            const w = &writerIO.interface;
-            defer w.flush() catch @panic("Failed to print dic state\n");
-
-            while (try getToken(self.dic, &self.revDic, reader)) |t| {
-                try if (t < math.maxInt(u8))
-                    w.writeByte(@intCast(t))
-                else
-                    w.print("<{x}>", .{t});
-            }
-        }
-    };
 }
 
 test {
@@ -487,9 +68,10 @@ test {
 }
 
 const Trie = @import("Trie.zig").Trie;
+const BPE = @import("BPE.zig");
 
 const std = @import("std");
-const build_options = @import("build_options");
+const buildOptions = @import("buildOptions");
 
 const Allocator = std.mem.Allocator;
 const Order = std.math.Order;
