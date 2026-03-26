@@ -54,7 +54,7 @@ const Pair = struct {
     }
 };
 
-const BufferLen = std.math.pow(usize, 2, 10);
+const BufferLen = std.math.pow(usize, 2, 20);
 
 const PairCounting = std.HashMapUnmanaged(Pair, u32, Pair.Context, 50);
 const RevDic = std.HashMapUnmanaged(Domain, Pair, std.hash_map.AutoContext(Domain), 50);
@@ -292,34 +292,38 @@ fn getToken(dic: *Dic, r: *io.Reader) !?Domain {
     return checkPoint.item;
 }
 
-fn validToken(dic: *Dic, r: *io.Reader, limit: Domain, leftLen: u32, startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
-    // if (limit == 0x3ce) @breakpoint();
-    if (maxDepth - startingDepth == 1) return !try hasAnotherTokenLater(dic, dic, r, startingDepth, startingDepth, limit);
-
+fn validToken(dic: *Dic, r: *io.Reader, _limit: Domain, _leftLen: u32, _startingDepth: usize, maxDepth: usize) error{ReadFailed}!bool {
+    var startingDepth = _startingDepth;
     var child = dic;
-    for (startingDepth..startingDepth + leftLen) |i| {
-        child = child.getChar((try peekByte(r, i)).?).?;
+    var leftLen = _leftLen;
+    var limit = _limit;
+
+    while (maxDepth - startingDepth != 1) {
+        for (startingDepth..startingDepth + leftLen) |i| {
+            child = child.getChar((try peekByte(r, i)).?).?;
+        }
+
+        var rightChild = dic;
+
+        for (startingDepth + leftLen..maxDepth) |i| {
+            const peeked = try peekByte(r, i) orelse unreachable;
+            child = child.getChar(peeked) orelse unreachable;
+            rightChild = rightChild.getChar(peeked) orelse continue;
+        }
+
+        const rightValue = rightChild.getValue().?;
+
+        if (child.getValue().?.min < limit and try hasAnotherTokenLater(dic, child, r, startingDepth, maxDepth, limit)) return false;
+        if (rightChild == dic) return true;
+        if (rightValue.min < limit and try hasAnotherTokenLater(dic, rightChild, r, startingDepth + leftLen, maxDepth, limit)) return false;
+
+        startingDepth = startingDepth + leftLen;
+        leftLen = rightValue.leftLen;
+        limit = if (rightValue.value) |v| v else limit;
+        child = dic;
     }
 
-    // NOTE: At the moement this is not needed
-    //
-    // const leftDic = child;
-    // const leftValue = leftDic.getValue().?;
-    // if (leftLen != 0 and !try validToken(dic, r, if (leftValue.value) |v| v else limit, leftValue.leftLen, startingDepth, startingDepth + leftLen)) return false;
-
-    var rightChild = dic;
-
-    for (startingDepth + leftLen..maxDepth) |i| {
-        child = child.getChar((try peekByte(r, i)).?) orelse unreachable;
-        rightChild = rightChild.getChar((try peekByte(r, i)).?) orelse continue;
-    }
-
-    const rightValue = rightChild.getValue().?;
-    if (rightChild != dic and
-        (!try validToken(dic, r, if (rightValue.value) |v| v else limit, rightValue.leftLen, startingDepth + leftLen, maxDepth) or
-            try hasAnotherTokenLater(dic, rightChild, r, startingDepth + leftLen, maxDepth, limit))) return false;
-
-    return !try hasAnotherTokenLater(dic, child, r, startingDepth, maxDepth, limit);
+    return !try hasAnotherTokenLater(dic, dic, r, startingDepth, startingDepth, limit);
 }
 
 fn hasAnotherTokenLater(root: *Dic, current: *Dic, r: *io.Reader, startOfToken: usize, _depth: usize, limit: Domain) !bool {
